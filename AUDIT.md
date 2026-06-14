@@ -14,6 +14,7 @@
 - [x] 默认 Docker 镜像改为 `jiasongji/proxy-manager-sing-box:latest`。
 - [x] Dockerfile source label 改为 `https://github.com/jiasongji/proxy-manager`。
 - [x] 新增 `.gitignore`，排除本地凭据、证书、env、日志、运行时数据和备份目录。
+- [x] 新增 `.dockerignore`，避免 Docker build context 携带本地凭据或运行时数据。
 
 ## 2. 静态检查
 
@@ -43,7 +44,9 @@
 - [x] `docker build -t jiasongji/proxy-manager-sing-box:latest .` 通过。
 - [x] `docker image inspect jiasongji/proxy-manager-sing-box:latest` 通过，`org.opencontainers.image.source=https://github.com/jiasongji/proxy-manager`。
 - [x] `docker run --rm jiasongji/proxy-manager-sing-box:latest version` 通过，sing-box 版本为 `1.13.12`。
-- [ ] `docker push jiasongji/proxy-manager-sing-box:latest` 待发布阶段执行。
+- [x] `docker push jiasongji/proxy-manager-sing-box:v0.3.0` 通过，digest `sha256:b90a1f8d12fee77ffd9e56f5fabbef0b0b146053157ebf4e1986f02a06469e6d`。
+- [x] `docker push jiasongji/proxy-manager-sing-box:latest` 通过，digest `sha256:b90a1f8d12fee77ffd9e56f5fabbef0b0b146053157ebf4e1986f02a06469e6d`。
+- [x] `docker manifest inspect` 已验证 `latest` 与 `v0.3.0` manifest 可访问。
 
 ## 5. 组件矩阵与对抗测试
 
@@ -63,19 +66,21 @@
 
 ## 6. 发布检查
 
-- [ ] GitHub 仓库：`https://github.com/jiasongji/proxy-manager`
-- [ ] Docker 镜像：`jiasongji/proxy-manager-sing-box:latest`
-- [ ] GitHub Release 已上传 `proxy-manager.sh`
-- [ ] README 中的 Release 下载地址可用。
-- [ ] 从 Release URL 在测试服务器直接安装通过。
+- [x] GitHub 仓库已创建：`https://github.com/jiasongji/proxy-manager`。
+- [x] 默认分支：`main`。
+- [x] Git tag 已推送：`v0.3.0`。
+- [x] GitHub Release 已创建：`https://github.com/jiasongji/proxy-manager/releases/tag/v0.3.0`。
+- [x] Release asset 已上传：`proxy-manager.sh`，SHA-256 `e42a6650bd8ef3fda011d2f02635f6eb343e89e99bb7e631d84b7eb2b6832053`。
+- [x] Docker 镜像已推送：`jiasongji/proxy-manager-sing-box:latest`。
+- [x] Docker 版本镜像已推送：`jiasongji/proxy-manager-sing-box:v0.3.0`。
+- [ ] 从 Release URL 在测试服务器直接安装通过：待服务器端实装验证。
 
-## 7. 安全结论模板
+## 7. 安全结论
 
-最终发布前需补全：
-
-- 静态检查：待记录。
-- 菜单烟测：待记录。
-- Docker 构建与推送：待记录。
-- GitHub Release 下载：待记录。
-- 服务器端组件矩阵：待记录。
-- 对抗输入测试：待记录。
+- 静态检查：通过。
+- 菜单烟测：通过。
+- Docker 构建与推送：通过。
+- GitHub Release 上传：通过。
+- 公开文档脱敏：通过。
+- 服务器端组件矩阵：待在目标测试服务器执行。
+- 对抗输入测试：待在目标测试服务器执行。
