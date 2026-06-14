@@ -1345,9 +1345,9 @@ uninstall_stack() {
 }
 
 pause_return() {
-  local prompt="${1:-按回车返回上一页...}" _pause
+  local _pause
   if [[ -t 0 ]]; then
-    read -r -p "$prompt" _pause || true
+    read -r -p '按回车返回上一页...' _pause || true
   fi
 }
 
