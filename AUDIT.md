@@ -70,9 +70,10 @@
 - [x] 默认分支：`main`。
 - [x] Git tag 已推送：`v0.3.0`。
 - [x] GitHub Release 已创建：`https://github.com/jiasongji/proxy-manager/releases/tag/v0.3.0`。
-- [x] Release asset 已上传：`proxy-manager.sh`，SHA-256 `e42a6650bd8ef3fda011d2f02635f6eb343e89e99bb7e631d84b7eb2b6832053`。
+- [x] Release asset 已上传：`proxy-manager.sh`，SHA-256 `7e40f71608216c1310f0d08f9b383b3c11e5c61722891d2f83399463e7c2c430`。
 - [x] Release latest 下载地址公开可用，下载后 `bash -n` 通过且版本为 `0.3.0`。
 - [x] GitHub 仓库已切换为公开可见。
+- [x] GitHub Actions `ci` 已通过：`27503983324`。
 - [x] Docker 镜像已推送：`jiasongji/proxy-manager-sing-box:latest`。
 - [x] Docker 版本镜像已推送：`jiasongji/proxy-manager-sing-box:v0.3.0`。
 - [ ] 从 Release URL 在测试服务器直接安装通过：待服务器端实装验证。
