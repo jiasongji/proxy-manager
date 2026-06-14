@@ -1,0 +1,18 @@
+# Keep build context clean
+.git
+.github
+AGENTS.md
+*.env
+.env
+*.key
+*.pem
+*id_rsa*
+*id_ed25519*
+DR-LA_*_id_ed25519
+config/
+compose/
+logs/
+backup/
+runtime/
+tmp/
+.DS_Store

@@ -1,0 +1,28 @@
+# macOS / editor
+.DS_Store
+*.swp
+*.swo
+
+# Internal notes
+AGENTS.md
+
+# Local secrets and credentials
+.env
+*.env
+*.key
+*.pem
+*id_rsa*
+*id_ed25519*
+DR-LA_*_id_ed25519
+
+# Runtime output generated on servers
+config/
+compose/
+logs/
+backup/
+runtime/
+tmp/
+
+# Local audit/build noise
+*.log
+.shellcheckrc.local
