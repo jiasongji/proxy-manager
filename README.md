@@ -133,7 +133,7 @@ p-m install --yes \
 - 快捷命令：`PL`（Linux 命令大小写敏感）
 - 长命令：`proxy-lite`
 - 默认目录：`/www/wwwroot/<domain>/Proxy-Lite/`
-- 数据面：服务器 A 的 AnyTLS / NaiveProxy / 可选 Shadowsocks 用户入口固定经服务器 B 的 Shadowsocks 出站；服务器 B 只做 Shadowsocks 落地 direct 出口。
+- 数据面：服务器 A 只提供 AnyTLS / NaiveProxy 用户入口，可按协议分别选择 `direct` 或经服务器 B 的 Shadowsocks `egress-b`；Shadowsocks 仅用于服务器 A-B 内部链路，不作为用户入口。服务器 B 只做 Shadowsocks 落地 direct 出口。
 - 不包含：`user`、`route`、`stats`、`traffic`、`quota` 功能。
 
 快速安装和一键复制部署命令见 [`https://github.com/jiasongji/proxy-lite`](https://github.com/jiasongji/proxy-lite)。

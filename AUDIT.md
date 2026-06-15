@@ -21,7 +21,7 @@
 - [x] 扩展 GitHub Actions smoke test。
 - [x] 新增安全升级路径：`p-m upgrade` 拉取候选 sing-box 镜像、执行配置校验，失败自动恢复更新前快照。
 - [x] 新增配置快照可视化与回退命令：`p-m backup list`、`p-m rollback latest|TIMESTAMP`。
-- [x] 新建独立 GitHub 项目 `https://github.com/jiasongji/proxy-lite`：保留 A/B AnyTLS、NaiveProxy、Shadowsocks 中转落地，裁剪多用户、流量限额和分流功能。
+- [x] 新建独立 GitHub 项目 `https://github.com/jiasongji/proxy-lite`：保留 A/B AnyTLS、NaiveProxy 与 A-B 内部 Shadowsocks 中转落地，按协议选择 direct 或 egress-b，裁剪多用户、流量限额和分流功能。
 - [x] 完整项目与轻量项目均改为生产运维命令默认要求 root 用户执行；纯帮助命令仍可直接查看。
 
 ## 2. 静态检查
@@ -67,7 +67,7 @@
 - [x] AnyTLS inbound 可从 `users.json` 渲染用户列表。
 - [x] 用户客户端导出目录不包含 B 的 Shadowsocks 密码。
 - [x] `egress_b` 可生成 `ss-landing-in` Shadowsocks inbound 与 `direct` outbound。
-- [x] 独立 `proxy-lite` 仓库 CI 已覆盖：`entry_a` 固定 `egress-b`、`egress_b` direct、无 `users.json`、无 `route.rule_set`、客户端导出不包含 B 上游密码。
+- [x] 独立 `proxy-lite` 仓库 CI 已覆盖：`entry_a` 协议级 direct/egress-b 路由、`route.final=direct`、无 Shadowsocks 用户入口、`egress_b` direct、无 `users.json`、无 `route.rule_set`、客户端导出不包含 B 上游密码。
 
 已执行的关键断言：
 
@@ -176,7 +176,7 @@ PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:l
 - B 上游密码隔离：本地临时配置检查通过。
 - AI 远程 rule-set：本地临时配置检查覆盖 OpenAI、Anthropic、`category-ai-!cn` 三个远程 `.srs`、规则顺序、无 `claude.srs`。
 - 安全升级与回退：临时目录检查覆盖 `p-m upgrade` / `PL upgrade` 候选镜像校验、`p-m rollback latest` / `PL rollback latest` 配置恢复、候选镜像拉取失败时恢复更新前快照。
-- Proxy Lite 独立项目：`jiasongji/proxy-lite` 已发布 `v0.1.0`，独立 CI 覆盖固定经 B 落地、无 `users.json`、无 `route.rule_set`、无 `user/route/stats/traffic/quota` 功能入口、B 上游密码不进入客户端导出。
+- Proxy Lite 独立项目：`jiasongji/proxy-lite` 已发布 `v0.1.1`，独立 CI 覆盖协议级 direct/egress-b 路由、`route.final=direct`、无 Shadowsocks 用户入口、无 `users.json`、无 `route.rule_set`、无 `user/route/stats/traffic/quota` 功能入口、B 上游密码不进入客户端导出。
 - ShellCheck：本地 Docker `koalaman/shellcheck:stable` 已通过；GitHub Actions 历史 run `27535910193` 已通过。
 - Docker / sing-box 实际 `check -c`：本地临时配置已用 `ghcr.io/sagernet/sing-box:latest` 通过；A/B 测试服务器历史 `p-m check` 已通过。
 - A/B 实机连通与出口 IP 验证：测试服务器已完成；最终复核确认 A 可达 B SS 端口、A/B 容器运行、监听正常，B 测试端口来源限制已收敛。
