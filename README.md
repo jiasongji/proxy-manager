@@ -12,7 +12,7 @@ proxy-manager
 
 > 旧版短命令已统一更名为 `p-m`；后续文档和脚本均以 `p-m` 为准。生产运维命令建议先切换到 root 用户后执行，脚本会对操作类命令做 root 检查。
 >
-> 轻量化副本见 [`proxy-lite/`](proxy-lite/)：只保留 A/B 中转落地能力，快捷命令为大写 `PL`，不包含多用户、流量限额或分流规则。
+> 轻量化独立项目见 [`jiasongji/proxy-lite`](https://github.com/jiasongji/proxy-lite)：只保留 A/B 中转落地能力，快捷命令为大写 `PL`，不包含多用户、流量限额或分流规则。
 
 ## 功能特性
 
@@ -126,7 +126,7 @@ p-m install --yes \
 
 ## Proxy Lite 轻量副本
 
-本仓库同时提供轻量化副本 [`proxy-lite/`](proxy-lite/)，用于只需要 A/B 中转落地、不需要多用户、流量限制或分流规则的场景。
+`proxy-lite` 是独立 GitHub 项目，用于只需要 A/B 中转落地、不需要多用户、流量限制或分流规则的场景。
 
 - 项目名：`proxy-lite`
 - GitHub：`https://github.com/jiasongji/proxy-lite`
@@ -136,7 +136,7 @@ p-m install --yes \
 - 数据面：服务器 A 的 AnyTLS / NaiveProxy / 可选 Shadowsocks 用户入口固定经服务器 B 的 Shadowsocks 出站；服务器 B 只做 Shadowsocks 落地 direct 出口。
 - 不包含：`user`、`route`、`stats`、`traffic`、`quota` 功能。
 
-快速安装示例见 [`proxy-lite/README.md`](proxy-lite/README.md)。
+快速安装和一键复制部署命令见 [`https://github.com/jiasongji/proxy-lite`](https://github.com/jiasongji/proxy-lite)。
 
 ## 目录结构
 
@@ -422,7 +422,6 @@ p-m user reset-usage <TEST_USER>
 ```bash
 git diff --check
 bash -n proxy-manager.sh
-bash -n proxy-lite/proxy-lite.sh
 bash proxy-manager.sh help
 bash proxy-manager.sh user help
 bash proxy-manager.sh route help
@@ -432,10 +431,6 @@ bash proxy-manager.sh quota help
 bash proxy-manager.sh backup help
 bash proxy-manager.sh rollback help
 bash proxy-manager.sh upgrade help
-bash proxy-lite/proxy-lite.sh help
-bash proxy-lite/proxy-lite.sh backup help
-bash proxy-lite/proxy-lite.sh rollback help
-bash proxy-lite/proxy-lite.sh upgrade help
 ```
 
 同时检查公开文件中没有真实服务器 IP、真实域名、SSH 端口、测试端口、私钥路径、证书路径、节点密码、B 上游凭据、用户客户端密码、token 或订阅链接。
@@ -518,9 +513,9 @@ p-m uninstall
 
 发布前至少完成：
 
-- `bash -n proxy-manager.sh` 和 `bash -n proxy-lite/proxy-lite.sh`
-- 如可用，执行 `shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh`
-- CLI smoke：完整项目覆盖 `help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`、`backup help`、`rollback help`、`upgrade help`；轻量项目覆盖 `help`、`backup help`、`rollback help`、`upgrade help`，并确认 `user/route/stats/traffic/quota` 已移除
+- `bash -n proxy-manager.sh`
+- 如可用，执行 `shellcheck proxy-manager.sh`
+- CLI smoke：完整项目覆盖 `help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`、`backup help`、`rollback help`、`upgrade help`；`proxy-lite` 由独立仓库 `jiasongji/proxy-lite` 的 CI 覆盖
 - 菜单烟测：主菜单回车退出、二级菜单回车返回、非法输入不触发危险操作
 - 生成配置烟测：`entry_a split`、`entry_a all_via_b`、`egress_b`
 - 安全升级烟测：`p-m upgrade --image <sing-box-image>` 先校验后应用；候选镜像或配置失败时恢复更新前快照；`p-m rollback latest` 可恢复并通过 `p-m check`

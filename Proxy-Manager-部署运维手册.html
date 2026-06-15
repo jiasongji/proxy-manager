@@ -16,7 +16,7 @@
   <header class="hero">
     <span class="badge ok">Proxy Manager</span><span class="badge">sing-box</span><span class="badge">A/B egress</span><span class="badge">multi-user</span>
     <h1>Proxy Manager 部署运维手册</h1>
-    <p>本手册面向服务器 root 用户内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理单机模式、服务器 A 入口分流模式、服务器 B Shadowsocks 落地模式。轻量副本见 <code>proxy-lite/</code>，短命令为大写 <code>PL</code>。</p>
+    <p>本手册面向服务器 root 用户内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理单机模式、服务器 A 入口分流模式、服务器 B Shadowsocks 落地模式。轻量版是独立 GitHub 项目 <code>https://github.com/jiasongji/proxy-lite</code>，短命令为大写 <code>PL</code>。</p>
   </header>
 
   <main class="grid">
@@ -51,7 +51,7 @@
 
       <section id="lite" class="card">
         <h2>1.1 Proxy Lite 轻量副本</h2>
-        <p><code>proxy-lite/</code> 是轻量化项目副本，只保留 A/B 中转落地能力：服务器 A 提供 AnyTLS、NaiveProxy 和可选 Shadowsocks 用户入口，并固定经服务器 B 的 Shadowsocks 出站；服务器 B 只提供 Shadowsocks 落地 direct 出口。</p>
+        <p><code>proxy-lite</code> 是独立 GitHub 项目，只保留 A/B 中转落地能力：服务器 A 提供 AnyTLS、NaiveProxy 和可选 Shadowsocks 用户入口，并固定经服务器 B 的 Shadowsocks 出站；服务器 B 只提供 Shadowsocks 落地 direct 出口。</p>
         <table>
           <tr><th>项目</th><th>值</th></tr>
           <tr><td>GitHub</td><td><code>https://github.com/jiasongji/proxy-lite</code></td></tr>
@@ -61,7 +61,7 @@
           <tr><td>默认目录</td><td><code>/www/wwwroot/&lt;domain&gt;/Proxy-Lite/</code></td></tr>
           <tr><td>已裁剪</td><td><code>user</code>、<code>route</code>、<code>stats</code>、<code>traffic</code>、<code>quota</code></td></tr>
         </table>
-        <p>轻量版教程和审计记录位于 <code>proxy-lite/README.md</code>、<code>proxy-lite/Proxy-Lite-部署运维手册.html</code> 和 <code>proxy-lite/AUDIT.md</code>。</p>
+        <p>轻量版教程、HTML 手册、审计记录、CI 与 Release 均位于独立仓库 <code>https://github.com/jiasongji/proxy-lite</code>。</p>
       </section>
 
       <section id="requirements" class="card">
@@ -292,8 +292,7 @@ p-m quota check</pre>
         <h3>本地静态检查</h3>
         <button class="copy" data-copy>复制</button>
         <pre>bash -n proxy-manager.sh
-bash -n proxy-lite/proxy-lite.sh
-shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh</pre>
+shellcheck proxy-manager.sh</pre>
         <h3>CLI 与菜单烟测</h3>
         <button class="copy" data-copy>复制</button>
         <pre>bash proxy-manager.sh help
@@ -305,10 +304,6 @@ bash proxy-manager.sh quota help
 bash proxy-manager.sh backup help
 bash proxy-manager.sh rollback help
 bash proxy-manager.sh upgrade help
-bash proxy-lite/proxy-lite.sh help
-bash proxy-lite/proxy-lite.sh backup help
-bash proxy-lite/proxy-lite.sh rollback help
-bash proxy-lite/proxy-lite.sh upgrade help
 printf '\n' | bash proxy-manager.sh menu
 printf '0\n' | bash proxy-manager.sh menu
 printf '3\n\n\n' | bash proxy-manager.sh menu
