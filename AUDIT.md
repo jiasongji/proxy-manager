@@ -145,6 +145,7 @@ PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:l
 - [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke；v0.4.2 最新通过 run ID：`27529979679`。
 - [x] 本轮 `VERSION="0.4.3"` 将 AI 分流生成迁移到 sing-box `route.rule_set` 远程 `.srs`；本地生成配置 smoke 与 Docker `sing-box check` 已覆盖 OpenAI、Anthropic、AI 总规则顺序和自定义规则保留。
 - [x] 本轮 `VERSION="0.4.4"` 新增安全升级与回退：`p-m upgrade` 使用候选 sing-box 镜像执行 `check -c` 后再应用，`p-m rollback` 可恢复配置快照，`p-m backup list` 可查看快照。
+- [x] `v0.4.4` Release 已附带 `proxy-manager.sh.sha256`，`p-m update` 可在下载脚本后进行 SHA-256 校验。
 - [x] 测试服务器 B 已以 `egress_b` 模式部署 Shadowsocks landing，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与 TCP/UDP 监听正常。
 - [x] 测试服务器 B 的 SS 测试端口来源限制已收敛为仅允许 A 来源 IP；复核未发现 `Anywhere` / `Anywhere (v6)` 全网放行规则，且 A 到 B 上游仍可达。
 - [x] 测试服务器 A 已以 `entry_a` 模式部署 AnyTLS + NaiveProxy，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与监听正常。
