@@ -67,7 +67,7 @@
 - [x] AnyTLS inbound 可从 `users.json` 渲染用户列表。
 - [x] 用户客户端导出目录不包含 B 的 Shadowsocks 密码。
 - [x] `egress_b` 可生成 `ss-landing-in` Shadowsocks inbound 与 `direct` outbound。
-- [x] 独立 `proxy-lite` 仓库 CI 已覆盖：`entry_a` 协议级 direct/egress-b 路由、`route.final=direct`、无 Shadowsocks 用户入口、`egress_b` direct、无 `users.json`、无 `route.rule_set`、客户端导出不包含 B 上游密码。
+- [x] 独立 `proxy-lite` 仓库 CI 已覆盖：`entry_a`/`egress_b` 三协议（AnyTLS/NaiveProxy/Shadowsocks）平级入口、协议级 direct/egress-b 路由、`route.final=direct`、B 可直接提供入口、用户 SS 入口与 A-B 落地凭据隔离、无 `users.json`、无 `route.rule_set`、客户端导出不包含 B 上游密码。
 
 已执行的关键断言：
 
@@ -176,7 +176,7 @@ PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:l
 - B 上游密码隔离：本地临时配置检查通过。
 - AI 远程 rule-set：本地临时配置检查覆盖 OpenAI、Anthropic、`category-ai-!cn` 三个远程 `.srs`、规则顺序、无 `claude.srs`。
 - 安全升级与回退：临时目录检查覆盖 `p-m upgrade` / `PL upgrade` 候选镜像校验、`p-m rollback latest` / `PL rollback latest` 配置恢复、候选镜像拉取失败时恢复更新前快照。
-- Proxy Lite 独立项目：`jiasongji/proxy-lite` 已发布 `v0.1.1`，独立 CI 覆盖协议级 direct/egress-b 路由、`route.final=direct`、无 Shadowsocks 用户入口、无 `users.json`、无 `route.rule_set`、无 `user/route/stats/traffic/quota` 功能入口、B 上游密码不进入客户端导出。
+- Proxy Lite 独立项目：`jiasongji/proxy-lite` 已发布 `v0.1.2`，AnyTLS/NaiveProxy/Shadowsocks 三协议平级、服务器 A/B 均可作入口、SS 兼作 A-B 内部落地的通用模型。独立 CI 覆盖三协议单协议/组合、协议级 direct/egress-b 路由、`route.final=direct`、用户 SS 入口与 A-B 落地凭据隔离、无 `users.json`、无 `route.rule_set`、无 `user/route/stats/traffic/quota` 功能入口、B 上游密码不进入客户端导出。
 - ShellCheck：本地 Docker `koalaman/shellcheck:stable` 已通过；GitHub Actions 历史 run `27535910193` 已通过。
 - Docker / sing-box 实际 `check -c`：本地临时配置已用 `ghcr.io/sagernet/sing-box:latest` 通过；A/B 测试服务器历史 `p-m check` 已通过。
 - A/B 实机连通与出口 IP 验证：测试服务器已完成；最终复核确认 A 可达 B SS 端口、A/B 容器运行、监听正常，B 测试端口来源限制已收敛。
