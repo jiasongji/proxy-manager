@@ -266,6 +266,21 @@ require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "请使用 root 用户执行。"
 }
 
+is_help_like_command() {
+  case "$COMMAND" in
+    help|-h|--help) return 0 ;;
+    user|route|stats|traffic|quota|backup|rollback|upgrade)
+      case "${POSITIONAL[0]:-}" in help|-h|--help) return 0 ;; esac ;;
+  esac
+  return 1
+}
+
+require_root_for_command() {
+  if is_help_like_command; then return 0; fi
+  if [[ "${PM_TEST_ALLOW_NON_ROOT:-0}" == "1" ]]; then return 0; fi
+  require_root
+}
+
 ensure_dirs() {
   mkdir -p "$PM_ROOT/bin" "$(CONFIG_DIR)" "$(CLIENT_DIR)" "$(COMPOSE_DIR)" "$(BACKUP_DIR)" "$(RUNTIME_DIR)" "$(DOCS_DIR)" "$PM_ROOT/logs"
   chmod 700 "$(CONFIG_DIR)" "$(CLIENT_DIR)" "$(BACKUP_DIR)" "$(RUNTIME_DIR)" 2>/dev/null || true
@@ -2951,6 +2966,7 @@ Proxy Manager v$VERSION
   p-m [command] [--yes]
   proxy-manager [command] [--yes]
 
+说明：生产运维命令请在 root 用户下执行；help 与各子命令 help 可直接查看。
 不带 command 时进入交互菜单：主菜单回车退出，二级菜单回车返回上一页。
 
 命令：
@@ -3019,11 +3035,13 @@ install 可选参数：
 服务器 A split 示例：
   p-m install --yes --node-role entry_a --domain a.example.com --server-ip 203.0.113.10 --components anytls,naive --cert-file /path/fullchain.pem --key-file /path/privkey.pem --b-ss-host 198.51.100.20 --b-ss-port 30003 --b-ss-password '<B_SS_PASSWORD>' --route-mode split
 
-GitHub 下载安装：
+GitHub 下载安装（root 用户下）：
   curl -fsSL $RELEASE_SCRIPT_URL -o /tmp/proxy-manager.sh
-  sudo bash /tmp/proxy-manager.sh install
+  bash /tmp/proxy-manager.sh install
 EOF
 }
+
+require_root_for_command
 
 case "$COMMAND" in
   menu) menu ;;

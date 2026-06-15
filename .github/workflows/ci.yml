@@ -14,7 +14,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Bash syntax
-        run: bash -n proxy-manager.sh
+        run: |
+          bash -n proxy-manager.sh
+          bash -n proxy-lite/proxy-lite.sh
 
       - name: Install ShellCheck
         run: |
@@ -22,15 +24,15 @@ jobs:
           sudo apt-get install -y shellcheck jq
 
       - name: ShellCheck
-        run: shellcheck proxy-manager.sh
+        run: shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh
 
       - name: Public docs audit
         run: |
           placeholder="Y""OUR_"
-          ! grep -RIn "${placeholder}GITHUB_ORG\|${placeholder}" README.md Proxy-Manager-部署运维手册.html Dockerfile
-          ! grep -RInE 'BEGIN [A-Z ]*KEY|gho_[A-Za-z0-9_]+|ghp_[A-Za-z0-9_]+|AKIA[0-9A-Z]{16}' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md
-          ! grep -RInE 'scp|ssh -i|chmod 600|登录测试服务器|上传脚本' README.md Proxy-Manager-部署运维手册.html
-          ! grep -RInE 'B_SS_PASSWORD=[^<]|b-secret|legacy-any|legacy-naive|DR-LA_.*id_ed25519' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md
+          ! grep -RIn "${placeholder}GITHUB_ORG\|${placeholder}" README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md proxy-lite/README.md proxy-lite/Proxy-Lite-部署运维手册.html proxy-lite/AUDIT.md
+          ! grep -RInE 'BEGIN [A-Z ]*KEY|gho_[A-Za-z0-9_]+|ghp_[A-Za-z0-9_]+|AKIA[0-9A-Z]{16}' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md proxy-lite/README.md proxy-lite/Proxy-Lite-部署运维手册.html proxy-lite/AUDIT.md
+          ! grep -RInE 'scp|ssh -i|chmod 600|登录测试服务器|上传脚本' README.md Proxy-Manager-部署运维手册.html proxy-lite/README.md proxy-lite/Proxy-Lite-部署运维手册.html proxy-lite/AUDIT.md
+          ! grep -RInE 'B_SS_PASSWORD=[^<]|b-secret|legacy-any|legacy-naive|DR-LA_.*id_ed25519' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md proxy-lite/README.md proxy-lite/Proxy-Lite-部署运维手册.html proxy-lite/AUDIT.md
 
       - name: CLI help smoke tests
         run: |
@@ -43,16 +45,28 @@ jobs:
           bash proxy-manager.sh backup help >/tmp/pm-backup-help.out
           bash proxy-manager.sh rollback help >/tmp/pm-rollback-help.out
           bash proxy-manager.sh upgrade help >/tmp/pm-upgrade-help.out
+          bash proxy-lite/proxy-lite.sh help >/tmp/pl-help.out
+          bash proxy-lite/proxy-lite.sh backup help >/tmp/pl-backup-help.out
+          bash proxy-lite/proxy-lite.sh rollback help >/tmp/pl-rollback-help.out
+          bash proxy-lite/proxy-lite.sh upgrade help >/tmp/pl-upgrade-help.out
+          if bash proxy-lite/proxy-lite.sh user >/tmp/pl-removed.out 2>&1; then
+            echo "Expected proxy-lite user command to fail" >&2
+            exit 1
+          fi
+          grep -q 'proxy-lite 已移除该功能' /tmp/pl-removed.out
 
       - name: Menu smoke tests
         run: |
-          printf '\n' | bash proxy-manager.sh menu
-          printf '0\n' | bash proxy-manager.sh menu
-          printf '3\n\n\n' | bash proxy-manager.sh menu
-          printf '4\n0\n0\n' | bash proxy-manager.sh menu
-          printf 'x\n\n' | bash proxy-manager.sh menu
+          printf '\n' | PM_TEST_ALLOW_NON_ROOT=1 bash proxy-manager.sh menu
+          printf '0\n' | PM_TEST_ALLOW_NON_ROOT=1 bash proxy-manager.sh menu
+          printf '3\n\n\n' | PM_TEST_ALLOW_NON_ROOT=1 bash proxy-manager.sh menu
+          printf '4\n0\n0\n' | PM_TEST_ALLOW_NON_ROOT=1 bash proxy-manager.sh menu
+          printf 'x\n\n' | PM_TEST_ALLOW_NON_ROOT=1 bash proxy-manager.sh menu
+          printf '\n' | PL_TEST_ALLOW_NON_ROOT=1 bash proxy-lite/proxy-lite.sh menu
+          printf '0\n' | PL_TEST_ALLOW_NON_ROOT=1 bash proxy-lite/proxy-lite.sh menu
+          printf 'x\n' | PL_TEST_ALLOW_NON_ROOT=1 bash proxy-lite/proxy-lite.sh menu
 
-      - name: Generated config smoke tests
+      - name: Proxy Manager generated config smoke tests
         run: |
           tmp="$(mktemp -d)"
           mkdir -p "$tmp/config"
@@ -94,7 +108,7 @@ jobs:
           KEY_FILE=$tmp/key.pem
           CREATED_AT='2026-06-15 00:00:00'
           EOF
-          PM_ROOT="$tmp" bash proxy-manager.sh route add-domain example.net >/tmp/pm-render-test.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh route add-domain example.net >/tmp/pm-render-test.out
           jq -e '.outbounds[] | select(.tag=="egress-b")' "$tmp/config/sing-box.json" >/dev/null
           jq -e '.route.rule_set | length == 3' "$tmp/config/sing-box.json" >/dev/null
           jq -e '
@@ -135,20 +149,112 @@ jobs:
           jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json" >/dev/null
           ! grep -R "claude.srs" "$tmp/config/sing-box.json" >/dev/null
           ! grep -R "b-secret" "$tmp/config/client" >/dev/null
-          PM_ROOT="$tmp" bash proxy-manager.sh check >/tmp/pm-singbox-check.out
-          PM_ROOT="$tmp" bash proxy-manager.sh route add-domain rollback.example >/tmp/pm-rollback-setup.out
-          PM_ROOT="$tmp" bash proxy-manager.sh backup list >/tmp/pm-backup-list.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh check >/tmp/pm-singbox-check.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh route add-domain rollback.example >/tmp/pm-rollback-setup.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh backup list >/tmp/pm-backup-list.out
           grep -q 'manager.env' /tmp/pm-backup-list.out
           jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("rollback.example"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
-          PM_ROOT="$tmp" bash proxy-manager.sh rollback latest >/tmp/pm-rollback.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh rollback latest >/tmp/pm-rollback.out
           jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("example.net"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
           jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("rollback.example"))] | length == 0' "$tmp/config/sing-box.json" >/dev/null
-          PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:latest >/tmp/pm-upgrade.out
+          PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:latest >/tmp/pm-upgrade.out
           jq -e '.route.rules[0].rule_set == ["openai"] and .route.rules[1].rule_set == ["anthropic"] and .route.rules[2].rule_set == ["category-ai-not-cn"]' "$tmp/config/sing-box.json" >/dev/null
-          if PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:this-tag-should-not-exist >/tmp/pm-upgrade-fail.out 2>&1; then
+          if PM_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:this-tag-should-not-exist >/tmp/pm-upgrade-fail.out 2>&1; then
             echo "Expected invalid-image upgrade to fail" >&2
             exit 1
           fi
           grep -q '候选镜像拉取失败' /tmp/pm-upgrade-fail.out
           grep -q 'PM_IMAGE=ghcr.io/sagernet/sing-box:latest' "$tmp/config/manager.env"
           rm -rf "$tmp"
+
+      - name: Proxy Lite generated config smoke tests
+        run: |
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/config"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=example.com" -keyout "$tmp/key.pem" -out "$tmp/cert.pem" >/dev/null 2>&1
+          cat > "$tmp/config/lite.env" <<EOF
+          PM_DOMAIN=example.com
+          PM_ROOT=$tmp
+          PM_SERVER_IP=203.0.113.10
+          PM_CONTAINER_NAME=pl-test
+          PM_IMAGE=ghcr.io/sagernet/sing-box:latest
+          PM_TZ=Asia/Shanghai
+          PM_NODE_ROLE=entry_a
+          ENABLE_ANYTLS=1
+          ENABLE_NAIVE=1
+          ENABLE_SS=0
+          ANYTLS_PORT=30001
+          NAIVE_PORT=30002
+          SS_PORT=
+          ANYTLS_NAME=proxy
+          ANYTLS_PASSWORD=any-secret
+          NAIVE_USERNAME=legacy
+          NAIVE_PASSWORD=naive-secret
+          SS_METHOD=aes-128-gcm
+          SS_PASSWORD=
+          B_SS_HOST=198.51.100.20
+          B_SS_PORT=30003
+          B_SS_METHOD=aes-128-gcm
+          B_SS_PASSWORD=b-secret
+          CERT_FILE=$tmp/cert.pem
+          KEY_FILE=$tmp/key.pem
+          CREATED_AT='2026-06-15 00:00:00'
+          EOF
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh change-secret anytls any-secret >/tmp/pl-render-test.out
+          jq -e '.outbounds[] | select(.tag=="egress-b")' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '.route.final == "egress-b" and (.route.rule_set == null)' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "proxy"' "$tmp/config/sing-box.json" >/dev/null
+          ! test -e "$tmp/config/users.json"
+          ! grep -R "b-secret" "$tmp/config/client" >/dev/null
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh check >/tmp/pl-singbox-check.out
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh change-secret naive changed-naive >/tmp/pl-rollback-setup.out
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh backup list >/tmp/pl-backup-list.out
+          grep -q 'lite.env' /tmp/pl-backup-list.out
+          grep -q 'NAIVE_PASSWORD=changed-naive' "$tmp/config/lite.env"
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh rollback latest >/tmp/pl-rollback.out
+          grep -q 'NAIVE_PASSWORD=naive-secret' "$tmp/config/lite.env"
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh upgrade --image ghcr.io/sagernet/sing-box:latest >/tmp/pl-upgrade.out
+          jq -e '.route.final == "egress-b" and (.route.rule_set == null)' "$tmp/config/sing-box.json" >/dev/null
+          if PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh upgrade --image ghcr.io/sagernet/sing-box:this-tag-should-not-exist >/tmp/pl-upgrade-fail.out 2>&1; then
+            echo "Expected invalid-image proxy-lite upgrade to fail" >&2
+            exit 1
+          fi
+          grep -q '候选镜像拉取失败' /tmp/pl-upgrade-fail.out
+          grep -q 'PM_IMAGE=ghcr.io/sagernet/sing-box:latest' "$tmp/config/lite.env"
+
+          tmp_b="$(mktemp -d)"
+          mkdir -p "$tmp_b/config"
+          cat > "$tmp_b/config/lite.env" <<EOF
+          PM_DOMAIN=b.example.com
+          PM_ROOT=$tmp_b
+          PM_SERVER_IP=198.51.100.20
+          PM_CONTAINER_NAME=pl-b-test
+          PM_IMAGE=ghcr.io/sagernet/sing-box:latest
+          PM_TZ=Asia/Shanghai
+          PM_NODE_ROLE=egress_b
+          ENABLE_ANYTLS=0
+          ENABLE_NAIVE=0
+          ENABLE_SS=1
+          ANYTLS_PORT=
+          NAIVE_PORT=
+          SS_PORT=30003
+          ANYTLS_NAME=proxy
+          ANYTLS_PASSWORD=
+          NAIVE_USERNAME=proxyuser
+          NAIVE_PASSWORD=
+          SS_METHOD=aes-128-gcm
+          SS_PASSWORD=b-secret
+          B_SS_HOST=
+          B_SS_PORT=30003
+          B_SS_METHOD=aes-128-gcm
+          B_SS_PASSWORD=b-secret
+          CERT_FILE=
+          KEY_FILE=
+          CREATED_AT='2026-06-15 00:00:00'
+          EOF
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp_b" bash proxy-lite/proxy-lite.sh change-secret ss b-secret >/tmp/pl-b-render.out
+          jq -e '.inbounds[] | select(.tag=="ss-landing-in")' "$tmp_b/config/sing-box.json" >/dev/null
+          jq -e '.route.final == "direct" and (.route.rule_set == null)' "$tmp_b/config/sing-box.json" >/dev/null
+          jq -e '[.outbounds[] | select(.tag=="egress-b")] | length == 0' "$tmp_b/config/sing-box.json" >/dev/null
+          PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp_b" bash proxy-lite/proxy-lite.sh check >/tmp/pl-b-singbox-check.out
+          rm -rf "$tmp" "$tmp_b"

@@ -10,7 +10,9 @@ p-m
 proxy-manager
 ```
 
-> 旧版短命令已统一更名为 `p-m`；后续文档和脚本均以 `p-m` 为准。
+> 旧版短命令已统一更名为 `p-m`；后续文档和脚本均以 `p-m` 为准。生产运维命令建议先切换到 root 用户后执行，脚本会对操作类命令做 root 检查。
+>
+> 轻量化副本见 [`proxy-lite/`](proxy-lite/)：只保留 A/B 中转落地能力，快捷命令为大写 `PL`，不包含多用户、流量限额或分流规则。
 
 ## 功能特性
 
@@ -50,7 +52,7 @@ proxy-manager
 
 ## 环境要求
 
-- Linux 服务器，建议 root 用户执行安装
+- Linux 服务器，建议先切换到 root 用户后执行安装和运维命令
 - 已安装并可用的 Docker
 - 可用的 Docker Compose（脚本在缺失时会尝试安装独立二进制）
 - `jq`：多用户、JSON 配置和分流管理需要
@@ -59,18 +61,18 @@ proxy-manager
 
 ## 快速安装
 
-在目标服务器执行：
+在目标服务器 root 用户下执行：
 
 ```bash
 curl -fsSL https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh -o /tmp/proxy-manager.sh
-sudo bash /tmp/proxy-manager.sh install
+bash /tmp/proxy-manager.sh install
 ```
 
 测试 main 分支开发版：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh -o /tmp/proxy-manager.sh
-sudo bash /tmp/proxy-manager.sh install
+bash /tmp/proxy-manager.sh install
 ```
 
 安装完成后运行：
@@ -121,6 +123,20 @@ p-m install --yes \
 `split` 是推荐默认模式：AI 远程 rule-set、Google 和自定义规则走 B，其余走 A。
 
 部署后先在两台服务器分别执行 `p-m check`、`p-m doctor`、`p-m status` 和 `p-m topology`；确认 B 是 `egress_b`，A 是 `entry_a`，再按下方“实机验收与复测流程”验证 AnyTLS、NaiveProxy 和出口 IP。
+
+## Proxy Lite 轻量副本
+
+本仓库同时提供轻量化副本 [`proxy-lite/`](proxy-lite/)，用于只需要 A/B 中转落地、不需要多用户、流量限制或分流规则的场景。
+
+- 项目名：`proxy-lite`
+- GitHub：`https://github.com/jiasongji/proxy-lite`
+- 快捷命令：`PL`（Linux 命令大小写敏感）
+- 长命令：`proxy-lite`
+- 默认目录：`/www/wwwroot/<domain>/Proxy-Lite/`
+- 数据面：服务器 A 的 AnyTLS / NaiveProxy / 可选 Shadowsocks 用户入口固定经服务器 B 的 Shadowsocks 出站；服务器 B 只做 Shadowsocks 落地 direct 出口。
+- 不包含：`user`、`route`、`stats`、`traffic`、`quota` 功能。
+
+快速安装示例见 [`proxy-lite/README.md`](proxy-lite/README.md)。
 
 ## 目录结构
 
@@ -406,6 +422,7 @@ p-m user reset-usage <TEST_USER>
 ```bash
 git diff --check
 bash -n proxy-manager.sh
+bash -n proxy-lite/proxy-lite.sh
 bash proxy-manager.sh help
 bash proxy-manager.sh user help
 bash proxy-manager.sh route help
@@ -415,6 +432,10 @@ bash proxy-manager.sh quota help
 bash proxy-manager.sh backup help
 bash proxy-manager.sh rollback help
 bash proxy-manager.sh upgrade help
+bash proxy-lite/proxy-lite.sh help
+bash proxy-lite/proxy-lite.sh backup help
+bash proxy-lite/proxy-lite.sh rollback help
+bash proxy-lite/proxy-lite.sh upgrade help
 ```
 
 同时检查公开文件中没有真实服务器 IP、真实域名、SSH 端口、测试端口、私钥路径、证书路径、节点密码、B 上游凭据、用户客户端密码、token 或订阅链接。
@@ -490,15 +511,16 @@ p-m uninstall
 - README、HTML 运维手册和审计记录不得提交真实节点密码、订阅链接、token 或私钥。
 - 每次修改端口、密码、分流、升级镜像或重配前会自动备份关键配置到 `backup/`。
 - `p-m upgrade` 只在候选镜像通过 `sing-box check -c` 后应用；失败会恢复更新前配置快照。
+- `proxy-manager`/`p-m` 与 `proxy-lite`/`PL` 可共存，两个项目使用不同默认目录和命令映射。
 - 卸载默认保留 Docker、Docker Compose 和宝塔证书。
 
 ## 审计要求
 
 发布前至少完成：
 
-- `bash -n proxy-manager.sh`
-- 如可用，执行 `shellcheck proxy-manager.sh`
-- CLI smoke：`help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`、`backup help`、`rollback help`、`upgrade help`
+- `bash -n proxy-manager.sh` 和 `bash -n proxy-lite/proxy-lite.sh`
+- 如可用，执行 `shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh`
+- CLI smoke：完整项目覆盖 `help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`、`backup help`、`rollback help`、`upgrade help`；轻量项目覆盖 `help`、`backup help`、`rollback help`、`upgrade help`，并确认 `user/route/stats/traffic/quota` 已移除
 - 菜单烟测：主菜单回车退出、二级菜单回车返回、非法输入不触发危险操作
 - 生成配置烟测：`entry_a split`、`entry_a all_via_b`、`egress_b`
 - 安全升级烟测：`p-m upgrade --image <sing-box-image>` 先校验后应用；候选镜像或配置失败时恢复更新前快照；`p-m rollback latest` 可恢复并通过 `p-m check`

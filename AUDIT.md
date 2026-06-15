@@ -1,7 +1,7 @@
 # Proxy Manager Audit
 
 审计日期：2026-06-15
-审计范围：A/B Shadowsocks 落地分流、多用户管理、流量/限额降级策略、安全升级与失败回退、脚本交互、CI、公开文档脱敏。
+审计范围：A/B Shadowsocks 落地分流、多用户管理、流量/限额降级策略、安全升级与失败回退、root 执行体验、Proxy Lite 轻量副本、脚本交互、CI、公开文档脱敏。
 
 > 公开仓库不得包含真实服务器 IP、真实域名、登录端口、节点密码、B 上游凭据、订阅链接、token、证书/key 文件或本地凭据文件。
 
@@ -21,13 +21,16 @@
 - [x] 扩展 GitHub Actions smoke test。
 - [x] 新增安全升级路径：`p-m upgrade` 拉取候选 sing-box 镜像、执行配置校验，失败自动恢复更新前快照。
 - [x] 新增配置快照可视化与回退命令：`p-m backup list`、`p-m rollback latest|TIMESTAMP`。
+- [x] 新增 `proxy-lite/` 轻量项目副本：保留 A/B AnyTLS、NaiveProxy、Shadowsocks 中转落地，裁剪多用户、流量限额和分流功能。
+- [x] 完整项目与轻量项目均改为生产运维命令默认要求 root 用户执行；纯帮助命令仍可直接查看。
 
 ## 2. 静态检查
 
 本地检查结果：
 
 - [x] `bash -n proxy-manager.sh` 通过。
-- [x] `shellcheck proxy-manager.sh`：本机通过 Docker `koalaman/shellcheck:stable` 执行通过；GitHub Actions 历史 run `27535910193` 的 ShellCheck 已通过。
+- [x] `bash -n proxy-lite/proxy-lite.sh` 通过。
+- [x] `shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh`：本机通过 Docker `koalaman/shellcheck:stable` 执行；GitHub Actions 后续需覆盖两套脚本。
 - [x] CLI help smoke 通过：
   - `bash proxy-manager.sh help`
   - `bash proxy-manager.sh user help`
@@ -38,6 +41,10 @@
   - `bash proxy-manager.sh backup help`
   - `bash proxy-manager.sh rollback help`
   - `bash proxy-manager.sh upgrade help`
+  - `bash proxy-lite/proxy-lite.sh help`
+  - `bash proxy-lite/proxy-lite.sh backup help`
+  - `bash proxy-lite/proxy-lite.sh rollback help`
+  - `bash proxy-lite/proxy-lite.sh upgrade help`
 - [x] 公开文档中无 GitHub/Docker 未替换占位。
 - [x] README、HTML、Dockerfile、AUDIT 未命中私钥、GitHub token、AWS key、测试用 B 密码、旧本地凭据文件名。
 - [x] README/HTML 未展示本地连接、脚本上传、SSH 私钥操作等步骤。
@@ -65,6 +72,9 @@
 - [x] AnyTLS inbound 可从 `users.json` 渲染用户列表。
 - [x] 用户客户端导出目录不包含 B 的 Shadowsocks 密码。
 - [x] `egress_b` 可生成 `ss-landing-in` Shadowsocks inbound 与 `direct` outbound。
+- [x] `proxy-lite entry_a` 可生成固定 `egress-b` outbound，`route.final` 为 `egress-b`，且不生成 `route.rule_set`。
+- [x] `proxy-lite egress_b` 可生成 `ss-landing-in` Shadowsocks inbound 与 `route.final` 为 `direct`。
+- [x] `proxy-lite` 不生成 `config/users.json`，客户端导出不包含 B 上游密码。
 
 已执行的关键断言：
 
@@ -81,6 +91,10 @@ PM_ROOT="$tmp" bash proxy-manager.sh check
 PM_ROOT="$tmp" bash proxy-manager.sh backup list
 PM_ROOT="$tmp" bash proxy-manager.sh rollback latest
 PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:latest
+PL_TEST_ALLOW_NON_ROOT=1 PM_ROOT="$tmp" bash proxy-lite/proxy-lite.sh change-secret anytls '<ANYTLS_PASSWORD>'
+jq -e '.route.final == "egress-b" and (.route.rule_set == null)' "$tmp/config/sing-box.json"
+! test -e "$tmp/config/users.json"
+! grep -R "<B_SS_PASSWORD>" "$tmp/config/client"
 ```
 
 安全升级失败路径补充断言：候选镜像拉取失败时，`p-m upgrade` 返回非零并恢复更新前 `manager.env`，不会切换运行容器。
@@ -135,6 +149,7 @@ PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:l
 - [x] 更新菜单 smoke tests，覆盖新菜单编号。
 - [x] 新增临时目录 generated config smoke tests，验证 `entry_a split`、AI 远程 `.srs` `route.rule_set`、规则顺序、自定义域名/关键词保留、无 `claude.srs` 与 B 密码不进入客户端导出。
 - [x] 新增上游 sing-box 真实 `check -c`、`backup list`、`rollback latest`、`upgrade --image` 与候选镜像失败回退 smoke。
+- [x] 新增 `proxy-lite/proxy-lite.sh` bash/shellcheck/help/menu/generated config/check/backup/rollback/upgrade smoke；完整项目操作类 smoke 使用临时测试变量适配 root 门禁。
 
 ## 7. 实机 A/B 验收结果
 
@@ -171,7 +186,8 @@ PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:l
 - 本地临时配置生成：通过。
 - B 上游密码隔离：本地临时配置检查通过。
 - AI 远程 rule-set：本地临时配置检查覆盖 OpenAI、Anthropic、`category-ai-!cn` 三个远程 `.srs`、规则顺序、无 `claude.srs`。
-- 安全升级与回退：临时目录检查覆盖 `p-m upgrade` 候选镜像校验、`p-m rollback latest` 配置恢复、候选镜像拉取失败时恢复更新前快照。
+- 安全升级与回退：临时目录检查覆盖 `p-m upgrade` / `PL upgrade` 候选镜像校验、`p-m rollback latest` / `PL rollback latest` 配置恢复、候选镜像拉取失败时恢复更新前快照。
+- Proxy Lite 轻量副本：临时目录检查覆盖固定经 B 落地、无 `users.json`、无 `route.rule_set`、无 `user/route/stats/traffic/quota` 功能入口、B 上游密码不进入客户端导出。
 - ShellCheck：本地 Docker `koalaman/shellcheck:stable` 已通过；GitHub Actions 历史 run `27535910193` 已通过。
 - Docker / sing-box 实际 `check -c`：本地临时配置已用 `ghcr.io/sagernet/sing-box:latest` 通过；A/B 测试服务器历史 `p-m check` 已通过。
 - A/B 实机连通与出口 IP 验证：测试服务器已完成；最终复核确认 A 可达 B SS 端口、A/B 容器运行、监听正常，B 测试端口来源限制已收敛。

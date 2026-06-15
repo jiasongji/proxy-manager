@@ -16,12 +16,13 @@
   <header class="hero">
     <span class="badge ok">Proxy Manager</span><span class="badge">sing-box</span><span class="badge">A/B egress</span><span class="badge">multi-user</span>
     <h1>Proxy Manager 部署运维手册</h1>
-    <p>本手册面向服务器内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理单机模式、服务器 A 入口分流模式、服务器 B Shadowsocks 落地模式。</p>
+    <p>本手册面向服务器 root 用户内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理单机模式、服务器 A 入口分流模式、服务器 B Shadowsocks 落地模式。轻量副本见 <code>proxy-lite/</code>，短命令为大写 <code>PL</code>。</p>
   </header>
 
   <main class="grid">
     <nav class="card nav" aria-label="目录">
       <a href="#overview">1. 概览</a>
+      <a href="#lite">1.1 Proxy Lite</a>
       <a href="#requirements">2. 环境要求</a>
       <a href="#install">3. 一键安装</a>
       <a href="#topology">4. A/B 拓扑</a>
@@ -48,10 +49,25 @@
         <p>默认运行镜像仍为上游 <code>ghcr.io/sagernet/sing-box:latest</code>。AI 分流使用 sing-box 新版 <code>route.rule_set</code> 远程 <code>.srs</code>，容器运行环境需要能访问对应规则集 URL。上游 sing-box 更新时，推荐使用 <code>p-m upgrade</code> 进行候选镜像校验和失败回退保护。</p>
       </section>
 
+      <section id="lite" class="card">
+        <h2>1.1 Proxy Lite 轻量副本</h2>
+        <p><code>proxy-lite/</code> 是轻量化项目副本，只保留 A/B 中转落地能力：服务器 A 提供 AnyTLS、NaiveProxy 和可选 Shadowsocks 用户入口，并固定经服务器 B 的 Shadowsocks 出站；服务器 B 只提供 Shadowsocks 落地 direct 出口。</p>
+        <table>
+          <tr><th>项目</th><th>值</th></tr>
+          <tr><td>GitHub</td><td><code>https://github.com/jiasongji/proxy-lite</code></td></tr>
+          <tr><td>Latest Release</td><td><code>v0.1.0</code></td></tr>
+          <tr><td>短命令</td><td><code>PL</code>（大写，Linux 命令大小写敏感）</td></tr>
+          <tr><td>长命令</td><td><code>proxy-lite</code></td></tr>
+          <tr><td>默认目录</td><td><code>/www/wwwroot/&lt;domain&gt;/Proxy-Lite/</code></td></tr>
+          <tr><td>已裁剪</td><td><code>user</code>、<code>route</code>、<code>stats</code>、<code>traffic</code>、<code>quota</code></td></tr>
+        </table>
+        <p>轻量版教程和审计记录位于 <code>proxy-lite/README.md</code>、<code>proxy-lite/Proxy-Lite-部署运维手册.html</code> 和 <code>proxy-lite/AUDIT.md</code>。</p>
+      </section>
+
       <section id="requirements" class="card">
         <h2>2. 环境要求</h2>
         <ul>
-          <li>Linux 服务器，建议使用 root 用户执行安装。</li>
+          <li>Linux 服务器，建议先切换到 root 用户后执行安装和运维命令。</li>
           <li>Docker daemon 可用。</li>
           <li>Docker Compose 可用；缺失时脚本会尝试安装独立二进制。</li>
           <li><code>jq</code> 可用：多用户、分流与 JSON 配置管理需要。</li>
@@ -67,11 +83,11 @@
         <h3>3.1 从 GitHub Release 安装</h3>
         <button class="copy" data-copy>复制</button>
         <pre>curl -fsSL https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh -o /tmp/proxy-manager.sh
-sudo bash /tmp/proxy-manager.sh install</pre>
+bash /tmp/proxy-manager.sh install</pre>
         <h3>3.2 从 main 分支安装开发版</h3>
         <button class="copy" data-copy>复制</button>
         <pre>curl -fsSL https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh -o /tmp/proxy-manager.sh
-sudo bash /tmp/proxy-manager.sh install</pre>
+bash /tmp/proxy-manager.sh install</pre>
         <h3>3.3 安装后进入菜单</h3>
         <button class="copy" data-copy>复制</button>
         <pre>p-m</pre>
@@ -276,7 +292,8 @@ p-m quota check</pre>
         <h3>本地静态检查</h3>
         <button class="copy" data-copy>复制</button>
         <pre>bash -n proxy-manager.sh
-shellcheck proxy-manager.sh</pre>
+bash -n proxy-lite/proxy-lite.sh
+shellcheck proxy-manager.sh proxy-lite/proxy-lite.sh</pre>
         <h3>CLI 与菜单烟测</h3>
         <button class="copy" data-copy>复制</button>
         <pre>bash proxy-manager.sh help
@@ -288,6 +305,10 @@ bash proxy-manager.sh quota help
 bash proxy-manager.sh backup help
 bash proxy-manager.sh rollback help
 bash proxy-manager.sh upgrade help
+bash proxy-lite/proxy-lite.sh help
+bash proxy-lite/proxy-lite.sh backup help
+bash proxy-lite/proxy-lite.sh rollback help
+bash proxy-lite/proxy-lite.sh upgrade help
 printf '\n' | bash proxy-manager.sh menu
 printf '0\n' | bash proxy-manager.sh menu
 printf '3\n\n\n' | bash proxy-manager.sh menu
