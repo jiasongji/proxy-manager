@@ -21,6 +21,7 @@ proxy-manager
 - 多用户管理：添加、删除、启用、禁用、改密、限额、导出客户端配置
 - 每用户独立客户端配置目录：`config/client/<user>/`
 - 自动备份关键配置：`manager.env`、`users.json`、`sing-box.json`、`docker-compose.yml`
+- 安全升级 sing-box 镜像：拉取候选镜像、执行配置校验，失败自动回退到更新前快照
 - 检测 UFW/firewalld 并尝试自动放行已启用组件端口
 - V2Ray API stats 能力探测；可用时用于用户流量读取和限额检查，不可用时明确降级
 - 支持从 GitHub 直接下载脚本安装，无需本地文件传输步骤
@@ -168,8 +169,11 @@ p-m install --yes \
 
 ```bash
 p-m install       # 安装 / 重新部署 / 选择角色与组件
-p-m update        # 从 GitHub 更新脚本
-p-m pull-image    # 拉取当前配置中的 Docker 镜像
+p-m update        # 从 GitHub 更新 Proxy Manager 脚本
+p-m upgrade       # 安全升级 sing-box 镜像：拉取、校验、失败回退
+p-m pull-image    # 仅拉取当前配置中的 Docker 镜像，不切换、不重启
+p-m backup list   # 列出可回退配置快照
+p-m rollback latest # 回退到最新配置快照
 p-m env-check     # 检查 Docker、Compose、jq、grpcurl 和命令映射
 p-m start         # 启动服务
 p-m stop          # 停止服务
@@ -408,6 +412,9 @@ bash proxy-manager.sh route help
 bash proxy-manager.sh stats help
 bash proxy-manager.sh traffic help
 bash proxy-manager.sh quota help
+bash proxy-manager.sh backup help
+bash proxy-manager.sh rollback help
+bash proxy-manager.sh upgrade help
 ```
 
 同时检查公开文件中没有真实服务器 IP、真实域名、SSH 端口、测试端口、私钥路径、证书路径、节点密码、B 上游凭据、用户客户端密码、token 或订阅链接。
@@ -420,7 +427,7 @@ bash proxy-manager.sh quota help
 ghcr.io/sagernet/sing-box:latest
 ```
 
-该镜像为官方 sing-box 运行时镜像，适合直接用于脚本生成的服务端配置。脚本生成的 AI 分流使用 sing-box 新版 `route.rule_set` 远程 `.srs`，容器运行环境需要能访问对应规则集 URL。若后续维护自定义镜像，可通过 `--image` 指定。
+该镜像为官方 sing-box 运行时镜像，适合直接用于脚本生成的服务端配置。脚本生成的 AI 分流使用 sing-box 新版 `route.rule_set` 远程 `.srs`，容器运行环境需要能访问对应规则集 URL。由于上游 sing-box 会持续更新，生产环境推荐使用 `p-m upgrade` 完成镜像更新前校验与失败回退；若后续维护自定义镜像，可通过 `--image` 指定。
 
 安装时可通过 `--image` 指定其他 sing-box 镜像：
 
@@ -428,17 +435,39 @@ ghcr.io/sagernet/sing-box:latest
 p-m install --yes --domain example.com --image ghcr.io/sagernet/sing-box:latest
 ```
 
-## 升级
+## 升级、校验与失败回退
 
-已安装后可执行：
+建议把“管理脚本更新”和“sing-box 运行镜像更新”分开执行：
 
 ```bash
+# 1. 更新 Proxy Manager 脚本；下载后会先执行 bash -n，若发布了 .sha256 会同时校验
 p-m update
-p-m pull-image
-p-m restart
+
+# 2. 查看已有可回退快照
+p-m backup list
+
+# 3. 安全升级 sing-box 镜像：拉取候选镜像、重新渲染配置、用候选镜像执行 sing-box check -c
+p-m upgrade --image ghcr.io/sagernet/sing-box:latest
+
+# 4. 升级后复核
+p-m check
+p-m status
 ```
 
-`p-m update` 会优先从 GitHub Release 下载脚本；如 Release 下载失败，会回退到 main 分支 raw 文件。
+`p-m update` 会优先从 GitHub Release 下载脚本；如 Release 下载失败，会回退到 main 分支 raw 文件。脚本下载后会先写入临时文件并执行 `bash -n`；若同路径存在 `proxy-manager.sh.sha256`，会校验 SHA-256 后再替换本地脚本。当前 release 若没有 checksum 文件，默认会给出警告并继续；如需强制校验，可设置 `PM_UPDATE_STRICT_CHECK=1`。
+
+`p-m pull-image` 只做 `docker pull`，不会重写配置、不会执行 `sing-box check -c`、也不会重建容器；生产环境建议使用 `p-m upgrade`。`p-m upgrade` 会在更新前自动备份 `manager.env`、`users.json`、`sing-box.json` 和 `docker-compose.yml`，候选镜像无法解析当前配置时会恢复更新前快照且不切换运行容器；如果容器重建失败，会恢复快照并尝试重建回退态。
+
+需要手动回退时执行：
+
+```bash
+p-m backup list
+p-m rollback latest
+# 或回退到指定快照
+p-m rollback 20260615-120000
+```
+
+回退会恢复关键配置并再次执行 `sing-box check -c`；如果服务正在运行，会重建容器应用回退态。
 
 从旧单用户版本升级后，首次渲染会把旧 `manager.env` 中的凭据迁移为 `users.json` 中的 `default` 用户。
 
@@ -459,7 +488,8 @@ p-m uninstall
 - 服务器 B 的 Shadowsocks 端口应只允许服务器 A 的公网 IP 访问，不要长期全网放行。
 - stats API 仅监听 `127.0.0.1`，不要暴露公网。
 - README、HTML 运维手册和审计记录不得提交真实节点密码、订阅链接、token 或私钥。
-- 每次修改端口、密码、分流或重配前会自动备份关键配置到 `backup/`。
+- 每次修改端口、密码、分流、升级镜像或重配前会自动备份关键配置到 `backup/`。
+- `p-m upgrade` 只在候选镜像通过 `sing-box check -c` 后应用；失败会恢复更新前配置快照。
 - 卸载默认保留 Docker、Docker Compose 和宝塔证书。
 
 ## 审计要求
@@ -468,9 +498,10 @@ p-m uninstall
 
 - `bash -n proxy-manager.sh`
 - 如可用，执行 `shellcheck proxy-manager.sh`
-- CLI smoke：`help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`
+- CLI smoke：`help`、`user help`、`route help`、`stats help`、`traffic help`、`quota help`、`backup help`、`rollback help`、`upgrade help`
 - 菜单烟测：主菜单回车退出、二级菜单回车返回、非法输入不触发危险操作
 - 生成配置烟测：`entry_a split`、`entry_a all_via_b`、`egress_b`
+- 安全升级烟测：`p-m upgrade --image <sing-box-image>` 先校验后应用；候选镜像或配置失败时恢复更新前快照；`p-m rollback latest` 可恢复并通过 `p-m check`
 - 多用户测试：添加、重复添加拒绝、禁用、启用、改密、导出、删除
 - 分流测试：AI 远程 rule-set、Google、自定义域名或关键词走 B，其余走 A；`all_via_b` 全部走 B；`all_direct` 全部走 A
 - 流量限额测试：stats 可用时流量增长和超额禁用；不可用时降级提示

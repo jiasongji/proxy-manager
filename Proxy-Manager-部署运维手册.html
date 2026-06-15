@@ -26,6 +26,7 @@
       <a href="#install">3. 一键安装</a>
       <a href="#topology">4. A/B 拓扑</a>
       <a href="#menu">5. 菜单与命令</a>
+      <a href="#upgrade">5.1 安全升级</a>
       <a href="#users">6. 多用户管理</a>
       <a href="#route">7. 分流与落地</a>
       <a href="#traffic">8. 流量与限额</a>
@@ -44,7 +45,7 @@
           <tr><td>短命令</td><td><code>p-m</code></td></tr>
           <tr><td>长命令</td><td><code>proxy-manager</code></td></tr>
         </table>
-        <p>默认运行镜像仍为上游 <code>ghcr.io/sagernet/sing-box:latest</code>。AI 分流使用 sing-box 新版 <code>route.rule_set</code> 远程 <code>.srs</code>，容器运行环境需要能访问对应规则集 URL。</p>
+        <p>默认运行镜像仍为上游 <code>ghcr.io/sagernet/sing-box:latest</code>。AI 分流使用 sing-box 新版 <code>route.rule_set</code> 远程 <code>.srs</code>，容器运行环境需要能访问对应规则集 URL。上游 sing-box 更新时，推荐使用 <code>p-m upgrade</code> 进行候选镜像校验和失败回退保护。</p>
       </section>
 
       <section id="requirements" class="card">
@@ -133,7 +134,10 @@ sudo bash /tmp/proxy-manager.sh install</pre>
         <button class="copy" data-copy>复制</button>
         <pre>p-m install
 p-m update
+p-m upgrade --image ghcr.io/sagernet/sing-box:latest
 p-m pull-image
+p-m backup list
+p-m rollback latest
 p-m env-check
 p-m start
 p-m stop
@@ -145,6 +149,22 @@ p-m doctor
 p-m topology
 p-m check
 p-m uninstall</pre>
+      </section>
+
+      <section id="upgrade" class="card">
+        <h2>5.1 安全升级与失败回退</h2>
+        <p>由于上游 sing-box 会持续更新，生产环境不要只手工拉取镜像后直接重启。推荐使用 <code>p-m upgrade</code>：脚本会先备份当前配置，拉取候选镜像，重新渲染配置，并用候选镜像执行 <code>sing-box check -c</code>；只有校验通过才会应用。候选配置检查失败时不会切换运行容器；重建失败时会恢复更新前快照并尝试重建回退态。</p>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m update
+p-m backup list
+p-m upgrade --image ghcr.io/sagernet/sing-box:latest
+p-m check
+p-m status</pre>
+        <p><code>p-m pull-image</code> 只执行 <code>docker pull</code>，不做配置校验、不切换、不重启；如需手动回退，可先查看快照，再恢复指定版本。</p>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m backup list
+p-m rollback latest
+p-m rollback 20260615-120000</pre>
       </section>
 
       <section id="users" class="card">
@@ -265,6 +285,9 @@ bash proxy-manager.sh route help
 bash proxy-manager.sh stats help
 bash proxy-manager.sh traffic help
 bash proxy-manager.sh quota help
+bash proxy-manager.sh backup help
+bash proxy-manager.sh rollback help
+bash proxy-manager.sh upgrade help
 printf '\n' | bash proxy-manager.sh menu
 printf '0\n' | bash proxy-manager.sh menu
 printf '3\n\n\n' | bash proxy-manager.sh menu
@@ -274,6 +297,7 @@ printf '4\n0\n0\n' | bash proxy-manager.sh menu</pre>
           <li>B：Shadowsocks landing 启动并限制来源 IP。</li>
           <li>A：AnyTLS / NaiveProxy 可连接，split 模式命中规则走 B，其余走 A。</li>
           <li>all_via_b 全部走 B；all_direct 全部走 A。</li>
+          <li><code>p-m upgrade</code> 会先执行候选镜像配置检查；失败时恢复更新前快照，<code>p-m rollback latest</code> 可手动回退。</li>
           <li>多用户添加、禁用、导出、改密、删除流程可用。</li>
           <li>公开文档不包含真实密码、token、私钥或 B 凭据。</li>
         </ul>

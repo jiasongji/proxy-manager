@@ -1,7 +1,7 @@
 # Proxy Manager Audit
 
 审计日期：2026-06-15
-审计范围：A/B Shadowsocks 落地分流、多用户管理、流量/限额降级策略、脚本交互、CI、公开文档脱敏。
+审计范围：A/B Shadowsocks 落地分流、多用户管理、流量/限额降级策略、安全升级与失败回退、脚本交互、CI、公开文档脱敏。
 
 > 公开仓库不得包含真实服务器 IP、真实域名、登录端口、节点密码、B 上游凭据、订阅链接、token、证书/key 文件或本地凭据文件。
 
@@ -19,13 +19,15 @@
 - [x] 新增 `doctor` 与 `topology` 诊断/拓扑入口。
 - [x] 更新 README 与 HTML 运维手册。
 - [x] 扩展 GitHub Actions smoke test。
+- [x] 新增安全升级路径：`p-m upgrade` 拉取候选 sing-box 镜像、执行配置校验，失败自动恢复更新前快照。
+- [x] 新增配置快照可视化与回退命令：`p-m backup list`、`p-m rollback latest|TIMESTAMP`。
 
 ## 2. 静态检查
 
 本地检查结果：
 
 - [x] `bash -n proxy-manager.sh` 通过。
-- [x] `shellcheck proxy-manager.sh`：本机未安装 shellcheck；GitHub Actions 最新 run `27529979679` 的 ShellCheck 已通过。
+- [x] `shellcheck proxy-manager.sh`：本机通过 Docker `koalaman/shellcheck:stable` 执行通过；GitHub Actions 历史 run `27535910193` 的 ShellCheck 已通过。
 - [x] CLI help smoke 通过：
   - `bash proxy-manager.sh help`
   - `bash proxy-manager.sh user help`
@@ -33,6 +35,9 @@
   - `bash proxy-manager.sh stats help`
   - `bash proxy-manager.sh traffic help`
   - `bash proxy-manager.sh quota help`
+  - `bash proxy-manager.sh backup help`
+  - `bash proxy-manager.sh rollback help`
+  - `bash proxy-manager.sh upgrade help`
 - [x] 公开文档中无 GitHub/Docker 未替换占位。
 - [x] README、HTML、Dockerfile、AUDIT 未命中私钥、GitHub token、AWS key、测试用 B 密码、旧本地凭据文件名。
 - [x] README/HTML 未展示本地连接、脚本上传、SSH 私钥操作等步骤。
@@ -54,6 +59,8 @@
 - [x] `entry_a + split` 可生成 `egress-b` Shadowsocks outbound。
 - [x] `entry_a + split` 可生成 OpenAI、Anthropic、AI 总规则三个远程 `.srs` `route.rule_set`，且规则顺序为 OpenAI → Anthropic → AI 总规则。
 - [x] `entry_a + split` 可保留 Google/custom 内联 route rules。
+- [x] 生成配置可用上游 `ghcr.io/sagernet/sing-box:latest` 执行真实 `check -c`。
+- [x] 临时目录可执行 `backup list`、`rollback latest` 和 `upgrade --image ghcr.io/sagernet/sing-box:latest` smoke；候选镜像拉取失败时恢复更新前 `manager.env`。
 - [x] 旧单用户 env 可迁移为 `users.json` 中的 `default` 用户。
 - [x] AnyTLS inbound 可从 `users.json` 渲染用户列表。
 - [x] 用户客户端导出目录不包含 B 的 Shadowsocks 密码。
@@ -70,7 +77,13 @@ jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("example.net"))]
 ! grep -R "claude.srs" "$tmp/config/sing-box.json"
 jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json"
 ! grep -R "<B_TEST_SECRET>" "$tmp/config/client"
+PM_ROOT="$tmp" bash proxy-manager.sh check
+PM_ROOT="$tmp" bash proxy-manager.sh backup list
+PM_ROOT="$tmp" bash proxy-manager.sh rollback latest
+PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:latest
 ```
+
+安全升级失败路径补充断言：候选镜像拉取失败时，`p-m upgrade` 返回非零并恢复更新前 `manager.env`，不会切换运行容器。
 
 ## 5. 新增功能验收清单
 
@@ -118,9 +131,10 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] 保留 Bash syntax。
 - [x] 保留 ShellCheck。
 - [x] 保留公开文档审计。
-- [x] 新增 CLI help smoke tests。
+- [x] 新增 CLI help smoke tests，覆盖 `backup`、`rollback`、`upgrade` 新命令帮助。
 - [x] 更新菜单 smoke tests，覆盖新菜单编号。
 - [x] 新增临时目录 generated config smoke tests，验证 `entry_a split`、AI 远程 `.srs` `route.rule_set`、规则顺序、自定义域名/关键词保留、无 `claude.srs` 与 B 密码不进入客户端导出。
+- [x] 新增上游 sing-box 真实 `check -c`、`backup list`、`rollback latest`、`upgrade --image` 与候选镜像失败回退 smoke。
 
 ## 7. 实机 A/B 验收结果
 
@@ -130,6 +144,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] `v0.4.2` Release asset SHA-256：`8f643c0171a335fd74a274e59afe37b00710fdb1848c0999b598756b22fba180`。
 - [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke；v0.4.2 最新通过 run ID：`27529979679`。
 - [x] 本轮 `VERSION="0.4.3"` 将 AI 分流生成迁移到 sing-box `route.rule_set` 远程 `.srs`；本地生成配置 smoke 与 Docker `sing-box check` 已覆盖 OpenAI、Anthropic、AI 总规则顺序和自定义规则保留。
+- [x] 本轮 `VERSION="0.4.4"` 新增安全升级与回退：`p-m upgrade` 使用候选 sing-box 镜像执行 `check -c` 后再应用，`p-m rollback` 可恢复配置快照，`p-m backup list` 可查看快照。
 - [x] 测试服务器 B 已以 `egress_b` 模式部署 Shadowsocks landing，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与 TCP/UDP 监听正常。
 - [x] 测试服务器 B 的 SS 测试端口来源限制已收敛为仅允许 A 来源 IP；复核未发现 `Anywhere` / `Anywhere (v6)` 全网放行规则，且 A 到 B 上游仍可达。
 - [x] 测试服务器 A 已以 `entry_a` 模式部署 AnyTLS + NaiveProxy，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与监听正常。
@@ -155,8 +170,9 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - 本地临时配置生成：通过。
 - B 上游密码隔离：本地临时配置检查通过。
 - AI 远程 rule-set：本地临时配置检查覆盖 OpenAI、Anthropic、`category-ai-!cn` 三个远程 `.srs`、规则顺序、无 `claude.srs`。
-- ShellCheck：GitHub Actions 最新 run `27529979679` 已通过。
-- Docker / sing-box 实际 `check -c`：A/B 测试服务器 `p-m check` 已通过。
+- 安全升级与回退：临时目录检查覆盖 `p-m upgrade` 候选镜像校验、`p-m rollback latest` 配置恢复、候选镜像拉取失败时恢复更新前快照。
+- ShellCheck：本地 Docker `koalaman/shellcheck:stable` 已通过；GitHub Actions 历史 run `27535910193` 已通过。
+- Docker / sing-box 实际 `check -c`：本地临时配置已用 `ghcr.io/sagernet/sing-box:latest` 通过；A/B 测试服务器历史 `p-m check` 已通过。
 - A/B 实机连通与出口 IP 验证：测试服务器已完成；最终复核确认 A 可达 B SS 端口、A/B 容器运行、监听正常，B 测试端口来源限制已收敛。
 
 ## 9. 代码审查修复
@@ -187,4 +203,6 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - AI 分流规则已使用 sing-box 新版 `route.rule_set` 远程二进制 `.srs`，来源为 MetaCubeX/meta-rules-dat `sing` 分支；OpenAI、Anthropic 先于 `category-ai-!cn` 总规则匹配，不使用旧 `geosite` / `geoip` 写法，也不使用 `claude.srs`。
 - Google、YouTube 和自定义规则仍使用内联域名/关键词；YouTube 默认不走 B，避免大流量视频消耗 B 带宽，可通过自定义域名加入。
 - 远程 `.srs` 规则依赖服务器能访问 GitHub raw；中国大陆网络环境如无法直连，需要在服务器侧提供可用网络路径或改用可访问的镜像源。
+- `p-m upgrade` 依赖服务器能拉取目标 Docker 镜像；候选镜像拉取失败会恢复更新前配置，但不会解决服务器到 GHCR/Docker registry 的网络可达性问题。
+- 回退快照覆盖关键运行配置，不替代完整系统级备份；证书文件、Docker daemon、云防火墙和外部镜像仓库仍需单独维护。
 - 本轮已在测试服务器执行 A/B 部署、路由与多用户矩阵；B 测试端口已收敛为仅允许 A 来源，后续如不再需要测试服务应及时清理。

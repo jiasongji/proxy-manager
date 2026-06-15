@@ -40,6 +40,9 @@ jobs:
           bash proxy-manager.sh stats help >/tmp/pm-stats-help.out
           bash proxy-manager.sh traffic help >/tmp/pm-traffic-help.out
           bash proxy-manager.sh quota help >/tmp/pm-quota-help.out
+          bash proxy-manager.sh backup help >/tmp/pm-backup-help.out
+          bash proxy-manager.sh rollback help >/tmp/pm-rollback-help.out
+          bash proxy-manager.sh upgrade help >/tmp/pm-upgrade-help.out
 
       - name: Menu smoke tests
         run: |
@@ -53,14 +56,13 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           mkdir -p "$tmp/config"
-          printf 'dummy cert\n' > "$tmp/cert.pem"
-          printf 'dummy key\n' > "$tmp/key.pem"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=example.com" -keyout "$tmp/key.pem" -out "$tmp/cert.pem" >/dev/null 2>&1
           cat > "$tmp/config/manager.env" <<EOF
           PM_DOMAIN=example.com
           PM_ROOT=$tmp
           PM_SERVER_IP=203.0.113.10
           PM_CONTAINER_NAME=pm-test
-          PM_IMAGE=jiasongji/proxy-manager-sing-box:latest
+          PM_IMAGE=ghcr.io/sagernet/sing-box:latest
           PM_TZ=Asia/Shanghai
           PM_NODE_ROLE=entry_a
           ENABLE_ANYTLS=1
@@ -133,4 +135,20 @@ jobs:
           jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json" >/dev/null
           ! grep -R "claude.srs" "$tmp/config/sing-box.json" >/dev/null
           ! grep -R "b-secret" "$tmp/config/client" >/dev/null
+          PM_ROOT="$tmp" bash proxy-manager.sh check >/tmp/pm-singbox-check.out
+          PM_ROOT="$tmp" bash proxy-manager.sh route add-domain rollback.example >/tmp/pm-rollback-setup.out
+          PM_ROOT="$tmp" bash proxy-manager.sh backup list >/tmp/pm-backup-list.out
+          grep -q 'manager.env' /tmp/pm-backup-list.out
+          jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("rollback.example"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
+          PM_ROOT="$tmp" bash proxy-manager.sh rollback latest >/tmp/pm-rollback.out
+          jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("example.net"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("rollback.example"))] | length == 0' "$tmp/config/sing-box.json" >/dev/null
+          PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:latest >/tmp/pm-upgrade.out
+          jq -e '.route.rules[0].rule_set == ["openai"] and .route.rules[1].rule_set == ["anthropic"] and .route.rules[2].rule_set == ["category-ai-not-cn"]' "$tmp/config/sing-box.json" >/dev/null
+          if PM_ROOT="$tmp" bash proxy-manager.sh upgrade --image ghcr.io/sagernet/sing-box:this-tag-should-not-exist >/tmp/pm-upgrade-fail.out 2>&1; then
+            echo "Expected invalid-image upgrade to fail" >&2
+            exit 1
+          fi
+          grep -q '候选镜像拉取失败' /tmp/pm-upgrade-fail.out
+          grep -q 'PM_IMAGE=ghcr.io/sagernet/sing-box:latest' "$tmp/config/manager.env"
           rm -rf "$tmp"

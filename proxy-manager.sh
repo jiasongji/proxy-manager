@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="0.4.3"
+VERSION="0.4.4"
 REPO_URL="https://github.com/jiasongji/proxy-manager"
 RAW_SCRIPT_URL="https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh"
 RELEASE_SCRIPT_URL="https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh"
@@ -99,6 +99,7 @@ V2RAY_API_LISTEN="${V2RAY_API_LISTEN:-$DEFAULT_V2RAY_API_LISTEN}"
 ENABLE_TRAFFIC_STATS="${ENABLE_TRAFFIC_STATS:-0}"
 ENABLE_QUOTA_ENFORCE="${ENABLE_QUOTA_ENFORCE:-0}"
 CREATED_AT="${CREATED_AT:-}"
+LAST_BACKUP_DIR=""
 
 AUTO_YES=0
 COMMAND="${1:-menu}"
@@ -587,16 +588,112 @@ load_env_required() {
 
 backup_configs() {
   ensure_dirs
-  local ts dir
+  local ts base dir n
   ts="$(date '+%Y%m%d-%H%M%S')"
-  dir="$(BACKUP_DIR)/$ts"
+  base="$(BACKUP_DIR)/$ts"
+  dir="$base"
+  n=1
+  while [[ -e "$dir" ]]; do
+    dir="${base}-$n"
+    n=$((n + 1))
+  done
   mkdir -p "$dir"
   chmod 700 "$dir" 2>/dev/null || true
   [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$dir/manager.env"
   [[ -f "$(USERS_FILE)" ]] && cp -a "$(USERS_FILE)" "$dir/users.json"
   [[ -f "$(CONFIG_FILE)" ]] && cp -a "$(CONFIG_FILE)" "$dir/sing-box.json"
   [[ -f "$(COMPOSE_FILE)" ]] && cp -a "$(COMPOSE_FILE)" "$dir/docker-compose.yml"
+  [[ -f "$PM_ROOT/bin/proxy-manager.sh" ]] && cp -a "$PM_ROOT/bin/proxy-manager.sh" "$dir/proxy-manager.sh"
+  LAST_BACKUP_DIR="$dir"
   log "已备份当前配置到：$dir"
+}
+
+backup_usage() {
+  cat <<'EOF'
+用法：
+  p-m backup list     列出可回退配置快照
+  p-m backup help     查看帮助
+
+说明：快照位于 backup/<timestamp>/，包含可用时的 manager.env、users.json、sing-box.json、docker-compose.yml 和脚本副本。
+EOF
+}
+
+backup_file_mark() {
+  local dir="$1" file="$2"
+  if [[ -f "$dir/$file" ]]; then printf 'yes'; else printf 'no'; fi
+}
+
+list_backups() {
+  ensure_dirs
+  local root dir name found=0
+  root="$(BACKUP_DIR)"
+  printf '备份目录：%s\n' "$root"
+  printf '%-18s %-12s %-10s %-13s %-18s %-16s\n' 'TIMESTAMP' 'manager.env' 'users.json' 'sing-box' 'docker-compose' 'script'
+  for dir in "$root"/*; do
+    [[ -d "$dir" ]] || continue
+    name="$(basename "$dir")"
+    [[ "$name" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]] || continue
+    found=1
+    printf '%-18s %-12s %-10s %-13s %-18s %-16s\n' \
+      "$name" \
+      "$(backup_file_mark "$dir" manager.env)" \
+      "$(backup_file_mark "$dir" users.json)" \
+      "$(backup_file_mark "$dir" sing-box.json)" \
+      "$(backup_file_mark "$dir" docker-compose.yml)" \
+      "$(backup_file_mark "$dir" proxy-manager.sh)"
+  done
+  if [[ "$found" -eq 0 ]]; then
+    warn "暂无可用备份。"
+  fi
+}
+
+latest_backup_dir() {
+  local root dir name latest=""
+  root="$(BACKUP_DIR)"
+  [[ -d "$root" ]] || return 1
+  for dir in "$root"/*; do
+    [[ -d "$dir" ]] || continue
+    name="$(basename "$dir")"
+    [[ "$name" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]] || continue
+    latest="$dir"
+  done
+  [[ -n "$latest" ]] || return 1
+  printf '%s\n' "$latest"
+}
+
+resolve_backup_dir() {
+  local target="${1:-latest}" dir
+  if [[ -z "$target" || "$target" == "latest" ]]; then
+    dir="$(latest_backup_dir)" || die "没有可用备份可回退。"
+  else
+    [[ "$target" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]] || die "备份名无效：$target"
+    dir="$(BACKUP_DIR)/$target"
+    [[ -d "$dir" ]] || die "备份不存在：$target"
+  fi
+  printf '%s\n' "$dir"
+}
+
+restore_backup_files() {
+  local dir="$1"
+  [[ -d "$dir" ]] || die "备份目录不存在：$dir"
+  [[ -f "$dir/manager.env" ]] || die "备份缺少 manager.env：$dir"
+  ensure_dirs
+  cp -a "$dir/manager.env" "$ENV_FILE"
+  [[ -f "$dir/users.json" ]] && cp -a "$dir/users.json" "$(USERS_FILE)"
+  [[ -f "$dir/sing-box.json" ]] && cp -a "$dir/sing-box.json" "$(CONFIG_FILE)"
+  [[ -f "$dir/docker-compose.yml" ]] && cp -a "$dir/docker-compose.yml" "$(COMPOSE_FILE)"
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  [[ -f "$(USERS_FILE)" ]] && chmod 600 "$(USERS_FILE)" 2>/dev/null || true
+  log "已恢复配置快照：$dir"
+}
+
+backup_cmd() {
+  local sub="${POSITIONAL[0]:-help}"
+  case "$sub" in
+    list) list_backups ;;
+    help|-h|--help|'') backup_usage ;;
+    *) err "未知 backup 子命令：$sub"; backup_usage; exit 2 ;;
+  esac
 }
 
 validate_users_json() {
@@ -1026,13 +1123,14 @@ render_singbox_config() {
   validate_topology_config
   ensure_users_file
   migrate_legacy_single_user
-  local file enable_v2ray_effective
+  local file tmp enable_v2ray_effective
   file="$(CONFIG_FILE)"
+  tmp="$(mktemp "$(dirname "$file")/.sing-box.XXXXXX")"
   enable_v2ray_effective="$ENABLE_V2RAY_API"
   if is_enabled "$ENABLE_TRAFFIC_STATS" || is_enabled "$ENABLE_QUOTA_ENFORCE"; then
     enable_v2ray_effective=1
   fi
-  jq -n \
+  if ! jq -n \
     --slurpfile db "$(USERS_FILE)" \
     --arg role "$PM_NODE_ROLE" \
     --arg enable_anytls "$ENABLE_ANYTLS" \
@@ -1112,8 +1210,12 @@ render_singbox_config() {
       route: route_obj
     }
     + (if $enable_v2ray == "1" and $role != "egress_b" then {experimental:{v2ray_api:{listen:$v2ray_listen, stats:{enabled:true, users:[($db[0].users // [])[] | select((.enabled // false) == true) | .name]}}}} else {} end)
-    ' > "$file"
-  chmod 600 "$file" 2>/dev/null || true
+    ' > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$file"
 }
 
 append_outbound_sep() {
@@ -1330,12 +1432,12 @@ render_all() {
     [[ -n "$SS_METHOD" ]] || SS_METHOD="$DEFAULT_SS_METHOD"
     [[ -n "$SS_PASSWORD" ]] || SS_PASSWORD="$(random_hex)"
   fi
-  write_env
-  ensure_users_file
-  migrate_legacy_single_user
-  render_singbox_config
-  render_client_configs
-  render_compose
+  write_env || return 1
+  ensure_users_file || return 1
+  migrate_legacy_single_user || return 1
+  render_singbox_config || return 1
+  render_client_configs || return 1
+  render_compose || return 1
   printf 'Proxy Manager installed at %s\n' "$(date '+%F %T')" > "$(RUNTIME_DIR)/installed.flag"
   chmod 600 "$(RUNTIME_DIR)/installed.flag" 2>/dev/null || true
 }
@@ -1409,18 +1511,21 @@ open_firewall_ports() {
 
 singbox_check() {
   ensure_docker
-  [[ -f "$(CONFIG_FILE)" ]] || die "缺少 sing-box 配置：$(CONFIG_FILE)"
-  local args=()
+  [[ -s "$(CONFIG_FILE)" ]] || die "缺少 sing-box 配置或配置为空：$(CONFIG_FILE)"
+  sync "$(CONFIG_FILE)" >/dev/null 2>&1 || sync >/dev/null 2>&1 || true
+  sleep 0.2 2>/dev/null || sleep 1
+  local image="${1:-$PM_IMAGE}" config_dir args=()
+  config_dir="$(dirname "$(CONFIG_FILE)")"
   args+=(--rm)
-  args+=(-v "$(CONFIG_FILE):/etc/sing-box/config.json:ro")
+  args+=(-v "$config_dir:/etc/sing-box:ro")
   if needs_tls; then
     args+=(-v "$(dirname "$CERT_FILE"):$(dirname "$CERT_FILE"):ro")
     if [[ "$(dirname "$KEY_FILE")" != "$(dirname "$CERT_FILE")" ]]; then
       args+=(-v "$(dirname "$KEY_FILE"):$(dirname "$KEY_FILE"):ro")
     fi
   fi
-  log "执行 sing-box 配置检查：$PM_IMAGE"
-  docker run "${args[@]}" "$PM_IMAGE" check -c /etc/sing-box/config.json
+  log "执行 sing-box 配置检查：$image"
+  docker run "${args[@]}" "$image" check -c /etc/sing-box/sing-box.json
 }
 
 install_symlinks() {
@@ -1441,6 +1546,54 @@ install_symlinks() {
   log "已创建命令：proxy-manager / p-m"
 }
 
+sha256_file() {
+  local file="$1" sum
+  if command -v sha256sum >/dev/null 2>&1; then
+    IFS=' ' read -r sum _ < <(sha256sum "$file")
+  elif command -v shasum >/dev/null 2>&1; then
+    IFS=' ' read -r sum _ < <(shasum -a 256 "$file")
+  else
+    return 1
+  fi
+  printf '%s\n' "$sum"
+}
+
+verify_download_checksum() {
+  local url="$1" file="$2" checksum_url checksum_tmp strict expected actual first
+  checksum_url="${SCRIPT_CHECKSUM_URL:-${url}.sha256}"
+  checksum_tmp="$(mktemp)"
+  strict="$(parse_bool01 "${PM_UPDATE_STRICT_CHECK:-0}")"
+  if curl -fsSL "$checksum_url" -o "$checksum_tmp"; then
+    expected=""
+    while IFS=' ' read -r first _; do
+      if [[ "$first" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+        expected="$first"
+        break
+      fi
+    done < "$checksum_tmp"
+    rm -f "$checksum_tmp"
+    if [[ -z "$expected" ]]; then
+      if [[ "$strict" == "1" ]]; then
+        die "校验文件格式无效：$checksum_url"
+      fi
+      warn "校验文件格式无效，已跳过 SHA-256 校验：$checksum_url"
+      return 0
+    fi
+    actual="$(sha256_file "$file")" || die "本机缺少 sha256sum/shasum，无法校验脚本。"
+    expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$actual" != "$expected" ]]; then
+      die "脚本 SHA-256 校验失败：expected=$expected actual=$actual"
+    fi
+    log "脚本 SHA-256 校验通过。"
+  else
+    rm -f "$checksum_tmp"
+    if [[ "$strict" == "1" ]]; then
+      die "严格校验已开启，但无法下载校验文件：$checksum_url"
+    fi
+    warn "未找到脚本 SHA-256 校验文件，已使用 bash -n 语法校验继续：$checksum_url"
+  fi
+}
+
 update_script() {
   require_root
   ensure_dirs
@@ -1451,9 +1604,12 @@ update_script() {
   log "从 GitHub 下载 Proxy Manager 脚本：$url"
   if ! curl -fsSL "$url" -o "$tmp"; then
     warn "Release 下载失败，尝试 main 分支开发版：$RAW_SCRIPT_URL"
-    curl -fsSL "$RAW_SCRIPT_URL" -o "$tmp"
+    url="$RAW_SCRIPT_URL"
+    curl -fsSL "$url" -o "$tmp"
   fi
   bash -n "$tmp"
+  verify_download_checksum "$url" "$tmp"
+  backup_configs
   cp -f "$tmp" "$PM_ROOT/bin/proxy-manager.sh"
   rm -f "$tmp"
   chmod +x "$PM_ROOT/bin/proxy-manager.sh"
@@ -1461,6 +1617,7 @@ update_script() {
   ln -sf "$PM_ROOT/bin/proxy-manager.sh" /usr/local/bin/p-m
   [[ -L /usr/local/bin/pro-m ]] && rm -f /usr/local/bin/pro-m
   log "脚本已更新。以后可执行：p-m 或 proxy-manager"
+  log "旧脚本备份目录：$LAST_BACKUP_DIR"
 }
 
 pull_image() {
@@ -1473,6 +1630,130 @@ pull_image() {
 check_stack() {
   load_env_required
   singbox_check
+}
+
+container_running() {
+  command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$PM_CONTAINER_NAME"
+}
+
+upgrade_usage() {
+  cat <<'EOF'
+用法：
+  p-m upgrade [--image IMAGE]
+
+说明：安全升级 sing-box 运行镜像。流程为备份当前配置、拉取候选镜像、重新渲染配置、用候选镜像执行 sing-box check -c，校验通过后才应用；失败会恢复更新前快照。
+EOF
+}
+
+rollback_usage() {
+  cat <<'EOF'
+用法：
+  p-m rollback [latest|TIMESTAMP]
+  p-m rollback help
+
+说明：从 backup/<timestamp>/ 恢复 manager.env、users.json、sing-box.json 和 docker-compose.yml。默认使用 latest。恢复后会执行 sing-box 配置检查；如果服务正在运行，会重建容器应用回退态。
+EOF
+}
+
+restore_snapshot_or_warn() {
+  local snapshot="$1"
+  if [[ -n "$snapshot" && -d "$snapshot" ]]; then
+    restore_backup_files "$snapshot"
+    load_env_required
+  else
+    warn "未找到可恢复快照：$snapshot"
+  fi
+}
+
+upgrade_stack() {
+  local sub="${POSITIONAL[0]:-}" old_image target_image snapshot was_running=0
+  case "$sub" in
+    help|-h|--help) upgrade_usage; return 0 ;;
+    '') ;;
+    *) err "未知 upgrade 参数：$sub"; upgrade_usage; exit 2 ;;
+  esac
+  load_env_required
+  ensure_jq
+  ensure_docker
+  ensure_compose
+  old_image="$PM_IMAGE"
+  target_image="${CLI_IMAGE:-$PM_IMAGE}"
+  [[ -n "$target_image" ]] || die "目标镜像不能为空。"
+  if container_running; then was_running=1; fi
+  backup_configs
+  snapshot="$LAST_BACKUP_DIR"
+  log "准备安全升级 sing-box 镜像：$old_image -> $target_image"
+  if ! docker pull "$target_image"; then
+    restore_snapshot_or_warn "$snapshot"
+    die "候选镜像拉取失败，已恢复更新前配置。"
+  fi
+  PM_IMAGE="$target_image"
+  if ! render_all; then
+    restore_snapshot_or_warn "$snapshot"
+    die "候选配置渲染失败，已恢复更新前配置。"
+  fi
+  if ! singbox_check "$target_image"; then
+    restore_snapshot_or_warn "$snapshot"
+    die "候选镜像无法解析当前配置，已恢复更新前配置，未切换运行容器。"
+  fi
+  if [[ "$was_running" -eq 1 ]]; then
+    log "配置校验通过，正在重建容器应用候选镜像。"
+    if compose_cmd up -d --force-recreate; then
+      sleep 2
+      status_stack
+      log "安全升级完成。"
+    else
+      warn "候选镜像重建失败，正在恢复更新前快照：$snapshot"
+      restore_snapshot_or_warn "$snapshot"
+      if compose_cmd up -d --force-recreate; then
+        sleep 2
+        status_stack
+        die "候选镜像重建失败，已恢复并重建回退态。"
+      fi
+      die "候选镜像重建失败，且回退态重建也失败；请检查 Docker/Compose 后执行：p-m rollback $(basename "$snapshot")"
+    fi
+  else
+    log "配置校验通过；当前服务未运行，已保存候选配置。需要启动时执行：p-m start"
+  fi
+}
+
+rollback_stack() {
+  local target="${POSITIONAL[0]:-latest}" snapshot safety was_running=0
+  case "$target" in
+    help|-h|--help) rollback_usage; return 0 ;;
+  esac
+  load_env_required
+  ensure_docker
+  ensure_compose
+  if container_running; then was_running=1; fi
+  snapshot="$(resolve_backup_dir "$target")"
+  backup_configs
+  safety="$LAST_BACKUP_DIR"
+  restore_backup_files "$snapshot"
+  load_env_required
+  if ! singbox_check; then
+    warn "目标快照无法通过 sing-box 配置检查，正在恢复回退前状态：$safety"
+    restore_snapshot_or_warn "$safety"
+    if [[ "$was_running" -eq 1 ]]; then
+      compose_cmd up -d --force-recreate || warn "恢复回退前状态后重建容器失败，请手动执行：p-m restart"
+    fi
+    die "回退失败：目标快照配置检查未通过。"
+  fi
+  if [[ "$was_running" -eq 1 ]]; then
+    log "配置检查通过，正在重建容器应用回退态。"
+    if compose_cmd up -d --force-recreate; then
+      sleep 2
+      status_stack
+      log "回退完成。"
+    else
+      warn "回退态重建失败，正在恢复回退前状态：$safety"
+      restore_snapshot_or_warn "$safety"
+      compose_cmd up -d --force-recreate || warn "恢复回退前状态后重建容器失败，请手动执行：p-m restart"
+      die "回退失败：容器重建未通过。"
+    fi
+  else
+    log "回退完成；当前服务未运行，需要启动时执行：p-m start"
+  fi
 }
 
 check_environment() {
@@ -2381,16 +2662,22 @@ install_menu() {
 
 1) 安装 / 重新部署 / 选择角色与组件
 2) 从 GitHub 更新脚本
-3) 拉取当前 Docker 镜像
-4) 检查运行环境
+3) 安全升级 sing-box 镜像（校验并失败回退）
+4) 拉取当前 Docker 镜像（不切换、不重启）
+5) 列出配置备份
+6) 回退到最新配置备份
+7) 检查运行环境
 0) 返回上一页
 EOF
     read -r -p '请选择操作 [回车返回]: ' choice || true
     case "$choice" in
       1) run_menu_action install_stack ;;
       2) run_menu_action update_script ;;
-      3) run_menu_action pull_image ;;
-      4) run_menu_action check_environment ;;
+      3) run_menu_action upgrade_stack ;;
+      4) run_menu_action pull_image ;;
+      5) run_menu_action list_backups ;;
+      6) run_menu_action rollback_stack ;;
+      7) run_menu_action check_environment ;;
       0|'') return 0 ;;
       *) warn '无效选择。'; pause_return ;;
     esac
@@ -2667,7 +2954,10 @@ Proxy Manager v$VERSION
 命令：
   install          安装 / 重新部署 / 选择角色与组件
   update           从 GitHub 更新脚本
-  pull-image       拉取当前配置中的 Docker 镜像
+  upgrade          安全升级 sing-box 镜像（拉取、校验、失败回退）
+  pull-image       拉取当前配置中的 Docker 镜像（不切换、不重启）
+  backup           查看配置备份，详见 p-m backup help
+  rollback         回退配置快照，详见 p-m rollback help
   env-check        检查本机 Docker、Compose、jq、grpcurl 和命令映射
   start|stop|restart|status|logs
   info             查看节点信息
@@ -2737,7 +3027,10 @@ case "$COMMAND" in
   menu) menu ;;
   install) install_stack ;;
   update) update_script ;;
+  upgrade) upgrade_stack ;;
   pull-image) pull_image ;;
+  backup) backup_cmd ;;
+  rollback) rollback_stack ;;
   env-check) check_environment ;;
   start) start_stack ;;
   stop) stop_stack ;;
