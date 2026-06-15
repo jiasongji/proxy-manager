@@ -601,7 +601,8 @@ backup_configs() {
 
 validate_users_json() {
   ensure_jq
-  local file="$(USERS_FILE)"
+  local file
+  file="$(USERS_FILE)"
   [[ -f "$file" ]] || return 1
   jq -e 'type == "object" and (.users | type == "array") and ((.version // 1) | tonumber >= 1)' "$file" >/dev/null
 }
@@ -609,7 +610,8 @@ validate_users_json() {
 ensure_users_file() {
   ensure_dirs
   ensure_jq
-  local file="$(USERS_FILE)"
+  local file
+  file="$(USERS_FILE)"
   if [[ ! -f "$file" ]]; then
     umask 077
     printf '{\n  "version": 1,\n  "users": []\n}\n' > "$file"
@@ -865,7 +867,7 @@ user_delete() {
   tmp="$(mktemp)"
   jq --arg name "$name" '.users = [.users[] | select(.name != $name)]' "$(USERS_FILE)" > "$tmp"
   write_users_tmp "$tmp"
-  rm -rf "$(CLIENT_DIR)/$name"
+  rm -rf "$(CLIENT_DIR)/${name:?}"
   backup_configs
   render_all
   apply_runtime_if_running
@@ -964,7 +966,13 @@ user_add_cmd() {
       --quota=*) quota="${args[$i]#*=}" ;;
       --note) i=$((i+1)); note="${args[$i]:-}" ;;
       --note=*) note="${args[$i]#*=}" ;;
-      *) [[ -z "$name" ]] && name="${args[$i]}" || die "未知 user add 参数：${args[$i]}" ;;
+      *)
+        if [[ -z "$name" ]]; then
+          name="${args[$i]}"
+        else
+          die "未知 user add 参数：${args[$i]}"
+        fi
+        ;;
     esac
   done
   if [[ -z "$name" ]]; then
@@ -1018,7 +1026,9 @@ render_singbox_config() {
   validate_topology_config
   ensure_users_file
   migrate_legacy_single_user
-  local file="$(CONFIG_FILE)" enable_v2ray_effective="$ENABLE_V2RAY_API"
+  local file enable_v2ray_effective
+  file="$(CONFIG_FILE)"
+  enable_v2ray_effective="$ENABLE_V2RAY_API"
   if is_enabled "$ENABLE_TRAFFIC_STATS" || is_enabled "$ENABLE_QUOTA_ENFORCE"; then
     enable_v2ray_effective=1
   fi
