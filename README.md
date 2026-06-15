@@ -1,6 +1,6 @@
 # Proxy Manager
 
-Proxy Manager 是一个基于 `sing-box` 的一键代理管理脚本，面向 Docker host 网络部署。它既保留单机模式，也支持服务器 A / 服务器 B 双节点拓扑：用户连接服务器 A 的 AnyTLS / NaiveProxy，服务器 A 再按规则把 AI、Google 或自定义流量转发到服务器 B 的 Shadowsocks 落地出口。
+Proxy Manager 是一个基于 `sing-box` 的一键代理管理脚本，面向 Docker host 网络部署。它既保留单机模式，也支持服务器 A / 服务器 B 双节点拓扑：用户连接服务器 A 的 AnyTLS / NaiveProxy，服务器 A 再按规则把 AI 远程 rule-set、Google 或自定义流量转发到服务器 B 的 Shadowsocks 落地出口。
 
 默认管理命令：
 
@@ -15,7 +15,7 @@ proxy-manager
 ## 功能特性
 
 - `standalone` 单机兼容模式：AnyTLS、NaiveProxy、Shadowsocks 按需组合
-- `entry_a` 服务器 A 入口/分流模式：用户连接 A，A 按规则走 A 或 B 出口
+- `entry_a` 服务器 A 入口/分流模式：用户连接 A，A 按 AI 远程 rule-set、Google 和自定义规则走 A 或 B 出口
 - `egress_b` 服务器 B 落地模式：提供给 A 使用的 Shadowsocks 出口
 - 分流模式：`split`、`all_via_b`、`all_direct`
 - 多用户管理：添加、删除、启用、禁用、改密、限额、导出客户端配置
@@ -32,7 +32,7 @@ proxy-manager
   │ AnyTLS / NaiveProxy
   ▼
 服务器 A（entry_a）
-  ├─ split: AI / Google / 自定义规则 → Shadowsocks outbound → 服务器 B
+  ├─ split: AI 远程 rule-set / Google / 自定义规则 → Shadowsocks outbound → 服务器 B
   ├─ split: 其他流量 → direct → 服务器 A 出口
   ├─ all_via_b: 全部流量 → 服务器 B 出口
   └─ all_direct: 全部流量 → 服务器 A 出口
@@ -43,7 +43,7 @@ proxy-manager
 
 - 用户只需要连接服务器 A。
 - 服务器 B 的 Shadowsocks 凭据是 A 的上游凭据，不会写入用户客户端配置。
-- `split` 模式下，AI / Google / 自定义域名命中时，目标网站看到的是 B 的出口 IP；其他流量看到的是 A 的出口 IP。
+- `split` 模式下，AI 远程规则集、Google 或自定义域名/关键词命中时，目标网站看到的是 B 的出口 IP；其他流量看到的是 A 的出口 IP。
 - 如果希望所有访问都显示 B 的 IP，切换到 `all_via_b`。
 - YouTube 默认不归入 Google 走 B，避免大流量视频无感消耗 B 带宽；可通过自定义域名或后续开关加入。
 
@@ -117,7 +117,7 @@ p-m install --yes \
   --route-mode split
 ```
 
-`split` 是推荐默认模式：AI / Google / 自定义规则走 B，其余走 A。
+`split` 是推荐默认模式：AI 远程 rule-set、Google 和自定义规则走 B，其余走 A。
 
 部署后先在两台服务器分别执行 `p-m check`、`p-m doctor`、`p-m status` 和 `p-m topology`；确认 B 是 `egress_b`，A 是 `entry_a`，再按下方“实机验收与复测流程”验证 AnyTLS、NaiveProxy 和出口 IP。
 
@@ -220,11 +220,65 @@ p-m route del-keyword example-keyword
 
 路由模式：
 
-- `split`：AI / Google / 自定义规则走 B，其余走 A
+- `split`：AI 远程规则集、Google、自定义域名或关键词走 B，其余走 A
 - `all_via_b`：全部流量走 B，用户访问网站显示 B 的出口 IP
 - `all_direct`：全部流量走 A，用于 B 故障时回退
 
-初版内置 AI / Google 域名规则，外加自定义域名和关键词；不依赖远程 rule-set，避免外部规则下载失败或供应链风险。
+### AI 远程规则集
+
+`split` 模式下，AI 服务使用 sing-box 新版 `route.rule_set` 远程 `.srs` 规则，不使用旧版 `geosite` / `geoip` 写法。规则来源为 MetaCubeX/meta-rules-dat 的 `sing` 分支：OpenAI 单独匹配、Claude / Anthropic 使用 `anthropic.srs` 单独匹配，其他 AI 服务再由 `category-ai-!cn` 总规则匹配。OpenAI 与 Anthropic 必须放在 AI 总规则前面，避免被大规则提前匹配；不要写成 `claude.srs`。
+
+本项目生成的服务器 B 出站 tag 是 `egress-b`。如果你把下面片段粘贴到自己的 sing-box 配置，且代理出站 tag 叫 `proxy`，请把 `outbound` 的值从 `egress-b` 改成 `proxy`。如果原配置已经有 `route.rule_set` 和 `route.rules`，只把下列三个 rule-set 和三条 rules 追加进去，不要覆盖原有结构，并保持 rules 的先后顺序。
+
+```json
+{
+  "route": {
+    "rule_set": [
+      {
+        "tag": "openai",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "anthropic",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "category-ai-not-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ai-%21cn.srs",
+        "update_interval": "1d"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": ["openai"],
+        "action": "route",
+        "outbound": "egress-b"
+      },
+      {
+        "rule_set": ["anthropic"],
+        "action": "route",
+        "outbound": "egress-b"
+      },
+      {
+        "rule_set": ["category-ai-not-cn"],
+        "action": "route",
+        "outbound": "egress-b"
+      }
+    ],
+    "final": "direct"
+  }
+}
+```
+
+Google、可选 YouTube、自定义域名和自定义关键词仍使用内联 `domain_suffix` / `domain_keyword` 规则；它们会排在上述 AI rule-set 规则之后。
 
 ## 流量统计与限额
 
@@ -305,9 +359,9 @@ p-m quota check
 | 路由模式 | 协议 | 测试目标 | 期望出口 |
 | --- | --- | --- | --- |
 | `split` | AnyTLS | 普通 IP 检测站 | `<A_EXPECTED_EXIT_IP>` |
-| `split` | AnyTLS | AI / Google / 自定义走 B 域名 | `<B_EXPECTED_EXIT_IP>` |
+| `split` | AnyTLS | AI rule-set / Google / 自定义走 B 目标 | `<B_EXPECTED_EXIT_IP>` |
 | `split` | NaiveProxy | 普通 IP 检测站 | `<A_EXPECTED_EXIT_IP>` |
-| `split` | NaiveProxy | AI / Google / 自定义走 B 域名 | `<B_EXPECTED_EXIT_IP>` |
+| `split` | NaiveProxy | AI rule-set / Google / 自定义走 B 目标 | `<B_EXPECTED_EXIT_IP>` |
 | `all_via_b` | AnyTLS / NaiveProxy | 任意测试目标 | `<B_EXPECTED_EXIT_IP>` |
 | `all_direct` | AnyTLS / NaiveProxy | 任意测试目标 | `<A_EXPECTED_EXIT_IP>` |
 
@@ -366,7 +420,7 @@ bash proxy-manager.sh quota help
 ghcr.io/sagernet/sing-box:latest
 ```
 
-该镜像为官方 sing-box 运行时镜像，适合直接用于脚本生成的服务端配置。若后续维护自定义镜像，可通过 `--image` 指定。
+该镜像为官方 sing-box 运行时镜像，适合直接用于脚本生成的服务端配置。脚本生成的 AI 分流使用 sing-box 新版 `route.rule_set` 远程 `.srs`，容器运行环境需要能访问对应规则集 URL。若后续维护自定义镜像，可通过 `--image` 指定。
 
 安装时可通过 `--image` 指定其他 sing-box 镜像：
 
@@ -418,7 +472,7 @@ p-m uninstall
 - 菜单烟测：主菜单回车退出、二级菜单回车返回、非法输入不触发危险操作
 - 生成配置烟测：`entry_a split`、`entry_a all_via_b`、`egress_b`
 - 多用户测试：添加、重复添加拒绝、禁用、启用、改密、导出、删除
-- 分流测试：AI / Google / 自定义域名走 B，其余走 A；`all_via_b` 全部走 B；`all_direct` 全部走 A
+- 分流测试：AI 远程 rule-set、Google、自定义域名或关键词走 B，其余走 A；`all_via_b` 全部走 B；`all_direct` 全部走 A
 - 流量限额测试：stats 可用时流量增长和超额禁用；不可用时降级提示
 - 脱敏审计：公开文件不包含真实服务器 IP、域名、SSH 端口、私钥路径、节点密码或 B 凭据
 - 卸载边界测试：确认不会删除 Docker、Compose、证书，删除项目目录必须输入 `DELETE`

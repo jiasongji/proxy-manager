@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="0.4.2"
+VERSION="0.4.3"
 REPO_URL="https://github.com/jiasongji/proxy-manager"
 RAW_SCRIPT_URL="https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh"
 RELEASE_SCRIPT_URL="https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh"
@@ -1062,11 +1062,22 @@ render_singbox_config() {
     def cats: csv($route_categories);
     def hascat($c): ((cats | index($c)) != null);
     def active_users($proto): (($db[0].users // []) | map(select((.enabled // false) == true and ((.protocols[$proto].enabled // false) == true))));
-    def ai_domains: ["openai.com","chatgpt.com","oaistatic.com","oaiusercontent.com","anthropic.com","claude.ai","perplexity.ai","poe.com","mistral.ai","cohere.com","huggingface.co"];
     def google_domains: ["google.com","googleapis.com","gstatic.com","ggpht.com","googleusercontent.com","gmail.com"];
     def youtube_domains: ["youtube.com","ytimg.com","googlevideo.com"];
-    def route_domains: (((if hascat("ai") then ai_domains else [] end) + (if hascat("google") then google_domains else [] end) + (if $include_youtube == "1" then youtube_domains else [] end) + csv($custom_domains)) | unique);
+    def route_domains: (((if hascat("google") then google_domains else [] end) + (if $include_youtube == "1" then youtube_domains else [] end) + csv($custom_domains)) | unique);
     def route_keywords: (csv($custom_keywords) | unique);
+    def ai_rule_sets:
+      [
+        {tag:"openai", type:"remote", format:"binary", url:"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs", update_interval:"1d"},
+        {tag:"anthropic", type:"remote", format:"binary", url:"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs", update_interval:"1d"},
+        {tag:"category-ai-not-cn", type:"remote", format:"binary", url:"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ai-%21cn.srs", update_interval:"1d"}
+      ];
+    def ai_rules:
+      [
+        {rule_set:["openai"], action:"route", outbound:"egress-b"},
+        {rule_set:["anthropic"], action:"route", outbound:"egress-b"},
+        {rule_set:["category-ai-not-cn"], action:"route", outbound:"egress-b"}
+      ];
     def anytls_in:
       if $enable_anytls == "1" then
         {type:"anytls", tag:"anytls-in", listen:"0.0.0.0", listen_port:($anytls_port|tonumber), users: [active_users("anytls")[] | {name:.name, password:.protocols.anytls.password}], tls:{enabled:true, server_name:$domain, certificate_path:$cert, key_path:$key}}
@@ -1083,14 +1094,15 @@ render_singbox_config() {
       {type:"shadowsocks", tag:"ss-landing-in", listen:"0.0.0.0", listen_port:($b_port|tonumber), method:$b_method, password:$b_pass};
     def direct_out: {type:"direct", tag:"direct"};
     def egress_b_out: {type:"shadowsocks", tag:"egress-b", server:$b_host, server_port:($b_port|tonumber), method:$b_method, password:$b_pass};
-    def b_rule:
+    def custom_b_rule:
       if ((route_domains | length) > 0 or (route_keywords | length) > 0) then
         ({} + (if (route_domains | length) > 0 then {domain_suffix: route_domains} else {} end) + (if (route_keywords | length) > 0 then {domain_keyword: route_keywords} else {} end) + {action:"route", outbound:"egress-b"})
       else empty end;
+    def split_rules: ((if hascat("ai") then ai_rules else [] end) + [custom_b_rule]);
     def route_obj:
       if $role == "entry_a" then
         if $route_mode == "all_via_b" then {final:"egress-b"}
-        elif $route_mode == "split" then {rules:[b_rule], final:"direct"}
+        elif $route_mode == "split" then ({} + (if hascat("ai") then {rule_set: ai_rule_sets} else {} end) + {rules:split_rules, final:"direct"})
         else {final:"direct"} end
       else {final:"direct"} end;
     {
@@ -1803,7 +1815,7 @@ B 地址:      ${B_SS_HOST:-未配置}
 B 端口:      ${B_SS_PORT:-未配置}
 B method:    ${B_SS_METHOD:-未配置}
 B 密码:      $(mask_secret "$B_SS_PASSWORD")
-AI/Google:   $ROUTE_B_CATEGORIES
+分流分类:    $ROUTE_B_CATEGORIES
 自定义域名:  ${ROUTE_B_CUSTOM_DOMAINS:-无}
 自定义关键词:${ROUTE_B_CUSTOM_KEYWORDS:-无}
 YouTube:     ${ROUTE_B_INCLUDE_YOUTUBE}
@@ -1981,7 +1993,7 @@ route_help() {
   p-m route add-keyword keyword
   p-m route del-keyword keyword
 
-说明：split 模式下 AI / Google / 自定义规则走服务器 B，其余走服务器 A；all-via-b 全部走 B；all-direct 全部走 A。
+说明：split 模式下 AI 远程 rule-set、Google、自定义域名或关键词走服务器 B，其余走服务器 A；all-via-b 全部走 B；all-direct 全部走 A。
 EOF
 }
 
@@ -2308,7 +2320,7 @@ topology_show() {
         if [[ "$ROUTE_MODE" == "all_via_b" ]]; then
           printf '出站: 全部经服务器 B。\n'
         else
-          printf '出站: AI/Google/custom 经服务器 B，其余 direct 经服务器 A。\n'
+          printf '出站: AI rule-set / Google / custom 经服务器 B，其余 direct 经服务器 A。\n'
         fi
       fi
       ;;
@@ -2675,11 +2687,11 @@ Proxy Manager v$VERSION
 
 角色：
   standalone       单机兼容模式
-  entry_a          服务器 A：AnyTLS/Naive 用户入口，AI/Google/custom 可走 B
+  entry_a          服务器 A：AnyTLS/Naive 用户入口，AI rule-set/Google/custom 可走 B
   egress_b         服务器 B：Shadowsocks 落地出口
 
 路由模式：
-  split            AI/Google/custom 走 B，其余走 A
+  split            AI rule-set/Google/custom 走 B，其余走 A
   all_via_b        全部流量走 B，用户看到的出口 IP 为 B
   all_direct       全部流量走 A，用于回退/排障
 

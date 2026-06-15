@@ -44,6 +44,7 @@
           <tr><td>短命令</td><td><code>p-m</code></td></tr>
           <tr><td>长命令</td><td><code>proxy-manager</code></td></tr>
         </table>
+        <p>默认运行镜像仍为上游 <code>ghcr.io/sagernet/sing-box:latest</code>。AI 分流使用 sing-box 新版 <code>route.rule_set</code> 远程 <code>.srs</code>，容器运行环境需要能访问对应规则集 URL。</p>
       </section>
 
       <section id="requirements" class="card">
@@ -81,7 +82,7 @@ sudo bash /tmp/proxy-manager.sh install</pre>
   │ AnyTLS / NaiveProxy
   ▼
 服务器 A（entry_a）
-  ├─ split: AI / Google / 自定义规则 → Shadowsocks outbound → 服务器 B
+  ├─ split: AI 远程 rule-set / Google / 自定义规则 → Shadowsocks outbound → 服务器 B
   ├─ split: 其他流量 → direct → 服务器 A 出口
   ├─ all_via_b: 全部流量 → 服务器 B 出口
   └─ all_direct: 全部流量 → 服务器 A 出口
@@ -180,11 +181,59 @@ p-m route add-keyword example-keyword
 p-m route del-keyword example-keyword</pre>
         <table>
           <tr><th>模式</th><th>说明</th></tr>
-          <tr><td><code>split</code></td><td>AI / Google / 自定义规则走 B，其余走 A。</td></tr>
+          <tr><td><code>split</code></td><td>AI 远程规则集、Google、自定义域名或关键词走 B，其余走 A。</td></tr>
           <tr><td><code>all_via_b</code></td><td>全部流量走 B，用户看到的出口 IP 为 B。</td></tr>
           <tr><td><code>all_direct</code></td><td>全部流量走 A，用于 B 故障时回退。</td></tr>
         </table>
-        <p>YouTube 默认不加入 Google 走 B，避免大流量视频消耗 B 带宽；可通过自定义域名按需加入。</p>
+        <p><code>split</code> 模式下，AI 服务使用 sing-box 新版 <code>route.rule_set</code> 远程 <code>.srs</code> 规则，不使用旧版 <code>geosite</code> / <code>geoip</code> 写法。OpenAI、Claude / Anthropic 单独匹配并排在 AI 总规则前；Claude / Anthropic 使用 <code>anthropic.srs</code>，不要写成 <code>claude.srs</code>。</p>
+        <p>下面片段可直接粘贴进 sing-box 配置。项目默认 B 出站 tag 为 <code>egress-b</code>；如果你的代理出站 tag 是 <code>proxy</code>，请把 <code>outbound</code> 改成 <code>proxy</code>。如果原配置已有 <code>route.rule_set</code> 和 <code>route.rules</code>，只追加这些条目，不要覆盖原结构。</p>
+        <button class="copy" data-copy>复制</button>
+        <pre>{
+  "route": {
+    "rule_set": [
+      {
+        "tag": "openai",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "anthropic",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "category-ai-not-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ai-%21cn.srs",
+        "update_interval": "1d"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": ["openai"],
+        "action": "route",
+        "outbound": "egress-b"
+      },
+      {
+        "rule_set": ["anthropic"],
+        "action": "route",
+        "outbound": "egress-b"
+      },
+      {
+        "rule_set": ["category-ai-not-cn"],
+        "action": "route",
+        "outbound": "egress-b"
+      }
+    ],
+    "final": "direct"
+  }
+}</pre>
+        <p>Google、可选 YouTube、自定义域名和自定义关键词仍使用内联 <code>domain_suffix</code> / <code>domain_keyword</code> 规则，排在 AI rule-set 规则之后。YouTube 默认不加入 Google 走 B，避免大流量视频消耗 B 带宽；可通过自定义域名按需加入。</p>
       </section>
 
       <section id="traffic" class="card">

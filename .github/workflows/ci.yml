@@ -82,7 +82,7 @@ jobs:
           ROUTE_MODE=split
           ROUTE_B_CATEGORIES=ai,google
           ROUTE_B_CUSTOM_DOMAINS=
-          ROUTE_B_CUSTOM_KEYWORDS=
+          ROUTE_B_CUSTOM_KEYWORDS=example-keyword
           ROUTE_B_INCLUDE_YOUTUBE=0
           ENABLE_V2RAY_API=0
           V2RAY_API_LISTEN=127.0.0.1:10085
@@ -94,7 +94,43 @@ jobs:
           EOF
           PM_ROOT="$tmp" bash proxy-manager.sh route add-domain example.net >/tmp/pm-render-test.out
           jq -e '.outbounds[] | select(.tag=="egress-b")' "$tmp/config/sing-box.json" >/dev/null
-          jq -e '.route.rules[0].domain_suffix | index("example.net")' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '.route.rule_set | length == 3' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '
+            [.route.rule_set[] | select(
+              .tag == "openai" and
+              .type == "remote" and
+              .format == "binary" and
+              .url == "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs" and
+              .update_interval == "1d"
+            )] | length == 1
+          ' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '
+            [.route.rule_set[] | select(
+              .tag == "anthropic" and
+              .type == "remote" and
+              .format == "binary" and
+              .url == "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs" and
+              .update_interval == "1d"
+            )] | length == 1
+          ' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '
+            [.route.rule_set[] | select(
+              .tag == "category-ai-not-cn" and
+              .type == "remote" and
+              .format == "binary" and
+              .url == "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ai-%21cn.srs" and
+              .update_interval == "1d"
+            )] | length == 1
+          ' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '
+            .route.rules[0].rule_set == ["openai"] and
+            .route.rules[1].rule_set == ["anthropic"] and
+            .route.rules[2].rule_set == ["category-ai-not-cn"]
+          ' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '[.route.rules[0:3][] | select(.action == "route" and .outbound == "egress-b")] | length == 3' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("example.net"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '[.route.rules[]? | select((.domain_keyword // []) | index("example-keyword"))] | length == 1' "$tmp/config/sing-box.json" >/dev/null
           jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json" >/dev/null
+          ! grep -R "claude.srs" "$tmp/config/sing-box.json" >/dev/null
           ! grep -R "b-secret" "$tmp/config/client" >/dev/null
           rm -rf "$tmp"

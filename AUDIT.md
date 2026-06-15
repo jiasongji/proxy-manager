@@ -10,7 +10,7 @@
 - [x] 新增节点角色：`standalone`、`entry_a`、`egress_b`。
 - [x] 明确服务器 A / 服务器 B 拓扑：用户连接 A，A 可通过 B 的 Shadowsocks 出站。
 - [x] 新增路由模式：`split`、`all_via_b`、`all_direct`。
-- [x] `split` 模式支持 AI / Google / 自定义域名或关键词走 B，其余流量走 A。
+- [x] `split` 模式支持 AI 远程 `.srs` rule-set、Google、自定义域名或关键词走 B，其余流量走 A。
 - [x] B 的 Shadowsocks 凭据只作为 A 的上游配置，不进入用户客户端导出。
 - [x] 新增 `config/users.json` 多用户数据库。
 - [x] 新增用户管理命令：list/add/show/enable/disable/del/passwd/quota/reset-usage/export。
@@ -52,7 +52,8 @@
 本地使用临时目录验证，不启动真实服务、不修改生产路径：
 
 - [x] `entry_a + split` 可生成 `egress-b` Shadowsocks outbound。
-- [x] `entry_a + split` 可生成 AI/Google/custom route rules。
+- [x] `entry_a + split` 可生成 OpenAI、Anthropic、AI 总规则三个远程 `.srs` `route.rule_set`，且规则顺序为 OpenAI → Anthropic → AI 总规则。
+- [x] `entry_a + split` 可保留 Google/custom 内联 route rules。
 - [x] 旧单用户 env 可迁移为 `users.json` 中的 `default` 用户。
 - [x] AnyTLS inbound 可从 `users.json` 渲染用户列表。
 - [x] 用户客户端导出目录不包含 B 的 Shadowsocks 密码。
@@ -62,7 +63,11 @@
 
 ```bash
 jq -e '.outbounds[] | select(.tag=="egress-b")' "$tmp/config/sing-box.json"
-jq -e '.route.rules[0].domain_suffix | index("example.net")' "$tmp/config/sing-box.json"
+jq -e '.route.rule_set | length == 3' "$tmp/config/sing-box.json"
+jq -e '.route.rules[0].rule_set == ["openai"] and .route.rules[1].rule_set == ["anthropic"] and .route.rules[2].rule_set == ["category-ai-not-cn"]' "$tmp/config/sing-box.json"
+jq -e '[.route.rule_set[] | select(.type=="remote" and .format=="binary" and .update_interval=="1d")] | length == 3' "$tmp/config/sing-box.json"
+jq -e '[.route.rules[]? | select((.domain_suffix // []) | index("example.net"))] | length == 1' "$tmp/config/sing-box.json"
+! grep -R "claude.srs" "$tmp/config/sing-box.json"
 jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json"
 ! grep -R "<B_TEST_SECRET>" "$tmp/config/client"
 ```
@@ -84,7 +89,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] 用户通过 AnyTLS 连接 A 成功。
 - [x] 用户通过 NaiveProxy 连接 A 成功。
 - [x] `split` 模式下普通流量显示 A 出口 IP。
-- [x] `split` 模式下 AI / Google / 自定义命中流量显示 B 出口 IP，或在 B 日志可观察到。
+- [x] `split` 模式下 AI 远程 rule-set、Google 或自定义命中流量显示 B 出口 IP，或在 B 日志可观察到。
 - [x] `all_via_b` 模式下全部流量显示 B 出口 IP。
 - [x] `all_direct` 模式下全部流量回到 A 出口 IP。
 
@@ -115,7 +120,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] 保留公开文档审计。
 - [x] 新增 CLI help smoke tests。
 - [x] 更新菜单 smoke tests，覆盖新菜单编号。
-- [x] 新增临时目录 generated config smoke tests，验证 `entry_a split` 与 B 密码不进入客户端导出。
+- [x] 新增临时目录 generated config smoke tests，验证 `entry_a split`、AI 远程 `.srs` `route.rule_set`、规则顺序、自定义域名/关键词保留、无 `claude.srs` 与 B 密码不进入客户端导出。
 
 ## 7. 实机 A/B 验收结果
 
@@ -123,7 +128,8 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 
 - [x] GitHub Release `v0.4.2` 已创建，`latest/download/proxy-manager.sh` 下载后 `VERSION="0.4.2"` 且 `bash -n` 通过。
 - [x] `v0.4.2` Release asset SHA-256：`8f643c0171a335fd74a274e59afe37b00710fdb1848c0999b598756b22fba180`。
-- [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke；最新通过 run ID：`27529979679`。
+- [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke；v0.4.2 最新通过 run ID：`27529979679`。
+- [x] 本轮 `VERSION="0.4.3"` 将 AI 分流生成迁移到 sing-box `route.rule_set` 远程 `.srs`；本地生成配置 smoke 与 Docker `sing-box check` 已覆盖 OpenAI、Anthropic、AI 总规则顺序和自定义规则保留。
 - [x] 测试服务器 B 已以 `egress_b` 模式部署 Shadowsocks landing，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与 TCP/UDP 监听正常。
 - [x] 测试服务器 B 的 SS 测试端口来源限制已收敛为仅允许 A 来源 IP；复核未发现 `Anywhere` / `Anywhere (v6)` 全网放行规则，且 A 到 B 上游仍可达。
 - [x] 测试服务器 A 已以 `entry_a` 模式部署 AnyTLS + NaiveProxy，安装脚本 `VERSION="0.4.2"`，`p-m check` / `p-m doctor` 通过，容器与监听正常。
@@ -148,6 +154,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - 公开文档脱敏：通过。
 - 本地临时配置生成：通过。
 - B 上游密码隔离：本地临时配置检查通过。
+- AI 远程 rule-set：本地临时配置检查覆盖 OpenAI、Anthropic、`category-ai-!cn` 三个远程 `.srs`、规则顺序、无 `claude.srs`。
 - ShellCheck：GitHub Actions 最新 run `27529979679` 已通过。
 - Docker / sing-box 实际 `check -c`：A/B 测试服务器 `p-m check` 已通过。
 - A/B 实机连通与出口 IP 验证：测试服务器已完成；最终复核确认 A 可达 B SS 端口、A/B 容器运行、监听正常，B 测试端口来源限制已收敛。
@@ -177,6 +184,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 ## 10. 已知限制
 
 - per-user 流量统计依赖 sing-box V2Ray API stats、镜像编译能力以及宿主机 `grpcurl`；不可用时限额功能降级。
-- 初版分流规则使用内置域名/关键词和自定义列表，不自动下载远程 rule-set。
-- YouTube 默认不走 B，避免大流量视频消耗 B 带宽；可通过自定义域名加入。
+- AI 分流规则已使用 sing-box 新版 `route.rule_set` 远程二进制 `.srs`，来源为 MetaCubeX/meta-rules-dat `sing` 分支；OpenAI、Anthropic 先于 `category-ai-!cn` 总规则匹配，不使用旧 `geosite` / `geoip` 写法，也不使用 `claude.srs`。
+- Google、YouTube 和自定义规则仍使用内联域名/关键词；YouTube 默认不走 B，避免大流量视频消耗 B 带宽，可通过自定义域名加入。
+- 远程 `.srs` 规则依赖服务器能访问 GitHub raw；中国大陆网络环境如无法直连，需要在服务器侧提供可用网络路径或改用可访问的镜像源。
 - 本轮已在测试服务器执行 A/B 部署、路由与多用户矩阵；B 测试端口已收敛为仅允许 A 来源，后续如不再需要测试服务应及时清理。
