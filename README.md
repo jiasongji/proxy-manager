@@ -119,6 +119,8 @@ p-m install --yes \
 
 `split` 是推荐默认模式：AI / Google / 自定义规则走 B，其余走 A。
 
+部署后先在两台服务器分别执行 `p-m check`、`p-m doctor`、`p-m status` 和 `p-m topology`；确认 B 是 `egress_b`，A 是 `entry_a`，再按下方“实机验收与复测流程”验证 AnyTLS、NaiveProxy 和出口 IP。
+
 ## 目录结构
 
 默认项目目录会根据部署域名生成：
@@ -241,6 +243,121 @@ p-m quota check
 - stats 或 `grpcurl` 不可用时，`traffic` / `quota` 会降级提示，不影响代理、分流和用户 CRUD。
 - stats API 默认监听 `127.0.0.1:10085`，不要暴露到公网。
 
+## 实机验收与复测流程
+
+以下步骤用于确认“用户连接服务器 A，但命中规则的流量通过服务器 B 出口”。所有命令中的主机、端口、用户和出口 IP 都使用占位符；不要把真实节点信息写入公开文档或 issue。
+
+### 1. 服务器 B（egress_b）检查
+
+在服务器 B 上确认 Shadowsocks 落地服务正常：
+
+```bash
+p-m check
+p-m doctor
+p-m status
+p-m topology
+```
+
+预期结果：
+
+- `topology` 显示当前角色为服务器 B / `egress_b`。
+- `status` 显示 sing-box 容器运行中，Shadowsocks inbound 正在监听。
+- 云安全组、UFW/firewalld 或面板防火墙只允许服务器 A 的公网 IP 访问 B 的 Shadowsocks 端口。
+
+如果要从服务器 A 复测 B 上游连通性，可使用：
+
+```bash
+nc -vz -w 5 <SERVER_B_HOST> <B_SS_PORT>
+# 或没有 nc 时：
+timeout 5 bash -c '</dev/tcp/<SERVER_B_HOST>/<B_SS_PORT>'
+```
+
+### 2. 服务器 A（entry_a）检查
+
+在服务器 A 上确认用户入口、分流和用户状态：
+
+```bash
+p-m check
+p-m doctor
+p-m status
+p-m topology
+p-m route show
+p-m user list
+p-m stats probe
+p-m traffic
+p-m quota check
+```
+
+预期结果：
+
+- `topology` 显示当前角色为服务器 A / `entry_a`。
+- `status` 显示 AnyTLS 与 NaiveProxy 入口正在监听。
+- `route show` 显示当前路由模式和自定义走 B 规则。
+- `user list` 中测试用户为 enabled，协议包含 `anytls` 和/或 `naive`。
+- 如果当前 sing-box 镜像不支持 V2Ray API stats，`stats probe`、`traffic`、`quota check` 应给出明确降级提示，且不影响代理服务。
+
+### 3. AnyTLS / NaiveProxy 出口矩阵
+
+使用测试用户的导出配置连接服务器 A。可通过 `p-m user export <TEST_USER>` 获取客户端配置；该输出包含真实用户凭据，不要公开粘贴。
+
+推荐至少复测以下矩阵：
+
+| 路由模式 | 协议 | 测试目标 | 期望出口 |
+| --- | --- | --- | --- |
+| `split` | AnyTLS | 普通 IP 检测站 | `<A_EXPECTED_EXIT_IP>` |
+| `split` | AnyTLS | AI / Google / 自定义走 B 域名 | `<B_EXPECTED_EXIT_IP>` |
+| `split` | NaiveProxy | 普通 IP 检测站 | `<A_EXPECTED_EXIT_IP>` |
+| `split` | NaiveProxy | AI / Google / 自定义走 B 域名 | `<B_EXPECTED_EXIT_IP>` |
+| `all_via_b` | AnyTLS / NaiveProxy | 任意测试目标 | `<B_EXPECTED_EXIT_IP>` |
+| `all_direct` | AnyTLS / NaiveProxy | 任意测试目标 | `<A_EXPECTED_EXIT_IP>` |
+
+示例本地观察命令（以客户端本地 HTTP/SOCKS 入口为例）：
+
+```bash
+curl --proxy <LOCAL_TEST_PROXY> https://<NORMAL_IP_CHECK_HOST>
+curl --proxy <LOCAL_TEST_PROXY> https://<B_ROUTE_TEST_HOST>
+```
+
+验收重点：客户端只配置连接服务器 A；B 的 Shadowsocks 地址和密码只存在于 A 的上游配置中，不应出现在用户客户端导出目录。
+
+### 4. 多用户与凭据隔离
+
+```bash
+p-m user add <TEST_USER> --protocols anytls,naive --quota 100GB
+p-m user list
+p-m user show <TEST_USER>
+p-m user export <TEST_USER>
+p-m user disable <TEST_USER>
+p-m user enable <TEST_USER>
+p-m user passwd <TEST_USER> all
+p-m user quota <TEST_USER> unlimited
+p-m user reset-usage <TEST_USER>
+```
+
+检查项：
+
+- 重复用户名应被拒绝。
+- 禁用用户后，该用户不再进入服务端 inbound users，旧客户端导出目录会被清理。
+- 启用、改密、限额、重置流量后，运行中的容器会尝试自动重建配置；如未运行则按提示手动 `p-m restart`。
+- 用户客户端导出中不得包含 B 上游 Shadowsocks 密码。
+
+### 5. 发布前复查
+
+公开发布 README、HTML 运维手册或 `AUDIT.md` 前，至少复查：
+
+```bash
+git diff --check
+bash -n proxy-manager.sh
+bash proxy-manager.sh help
+bash proxy-manager.sh user help
+bash proxy-manager.sh route help
+bash proxy-manager.sh stats help
+bash proxy-manager.sh traffic help
+bash proxy-manager.sh quota help
+```
+
+同时检查公开文件中没有真实服务器 IP、真实域名、SSH 端口、测试端口、私钥路径、证书路径、节点密码、B 上游凭据、用户客户端密码、token 或订阅链接。
+
 ## Docker 镜像
 
 默认运行镜像：
@@ -285,7 +402,7 @@ p-m uninstall
 - `users.json` 包含用户凭据、配额和流量统计，权限应为 `600`。
 - 用户客户端导出目录包含真实密码，不要放到公开 Web 目录。
 - B 的 Shadowsocks 凭据不会进入用户客户端配置。
-- 服务器 B 的 Shadowsocks 端口建议只允许服务器 A 的公网 IP 访问。
+- 服务器 B 的 Shadowsocks 端口应只允许服务器 A 的公网 IP 访问，不要长期全网放行。
 - stats API 仅监听 `127.0.0.1`，不要暴露公网。
 - README、HTML 运维手册和审计记录不得提交真实节点密码、订阅链接、token 或私钥。
 - 每次修改端口、密码、分流或重配前会自动备份关键配置到 `backup/`。
