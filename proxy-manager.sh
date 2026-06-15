@@ -683,7 +683,9 @@ restore_backup_files() {
   [[ -f "$dir/sing-box.json" ]] && cp -a "$dir/sing-box.json" "$(CONFIG_FILE)"
   [[ -f "$dir/docker-compose.yml" ]] && cp -a "$dir/docker-compose.yml" "$(COMPOSE_FILE)"
   chmod 600 "$ENV_FILE" 2>/dev/null || true
-  [[ -f "$(USERS_FILE)" ]] && chmod 600 "$(USERS_FILE)" 2>/dev/null || true
+  if [[ -f "$(USERS_FILE)" ]]; then
+    chmod 600 "$(USERS_FILE)" 2>/dev/null || true
+  fi
   log "已恢复配置快照：$dir"
 }
 
