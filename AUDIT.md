@@ -125,6 +125,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] `v0.4.1` Release asset SHA-256：`fb6c3a453fca6e0e96683527d630e6c582ede6161cb5a70aeb0a1f70212eb690`。
 - [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke。
 - [x] 测试服务器 B 已以 `egress_b` 模式部署 Shadowsocks landing，`p-m check` 通过，容器与 TCP/UDP 监听正常。
+- [ ] 测试服务器 B 的 SS 测试端口来源限制：当前脚本已放行端口；尝试自动收敛为仅允许 A 来源 IP 时被当前权限策略拦截，需人工或在更高权限模式下执行。
 - [x] 测试服务器 A 已以 `entry_a` 模式部署 AnyTLS + NaiveProxy，`p-m check` 通过，容器与监听正常。
 - [x] AnyTLS 客户端经 A 访问普通 IP 检测站显示 A 出口；访问自定义走 B 域名显示 B 出口。
 - [x] NaiveProxy 客户端经 A 访问普通 IP 检测站显示 A 出口；访问自定义走 B 域名显示 B 出口。
