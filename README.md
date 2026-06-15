@@ -243,23 +243,18 @@ p-m quota check
 
 ## Docker 镜像
 
-默认发布镜像：
+默认运行镜像：
 
 ```text
-jiasongji/proxy-manager-sing-box:latest
+ghcr.io/sagernet/sing-box:latest
 ```
 
-本地构建与推送示例：
-
-```bash
-docker build -t jiasongji/proxy-manager-sing-box:latest .
-docker push jiasongji/proxy-manager-sing-box:latest
-```
+该镜像为官方 sing-box 运行时镜像，适合直接用于脚本生成的服务端配置。若后续维护自定义镜像，可通过 `--image` 指定。
 
 安装时可通过 `--image` 指定其他 sing-box 镜像：
 
 ```bash
-p-m install --yes --domain example.com --image jiasongji/proxy-manager-sing-box:latest
+p-m install --yes --domain example.com --image ghcr.io/sagernet/sing-box:latest
 ```
 
 ## 升级

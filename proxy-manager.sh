@@ -2,14 +2,14 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="0.4.1"
+VERSION="0.4.2"
 REPO_URL="https://github.com/jiasongji/proxy-manager"
 RAW_SCRIPT_URL="https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh"
 RELEASE_SCRIPT_URL="https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh"
 DEFAULT_DOMAIN="example.com"
 DEFAULT_SERVER_IP="203.0.113.10"
 DEFAULT_CONTAINER_NAME="proxy-manager-sing-box"
-DEFAULT_IMAGE="jiasongji/proxy-manager-sing-box:latest"
+DEFAULT_IMAGE="ghcr.io/sagernet/sing-box:latest"
 DEFAULT_TZ="Asia/Shanghai"
 DEFAULT_SS_METHOD="aes-128-gcm"
 DEFAULT_NAIVE_USERNAME="proxyuser"
