@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="0.4.0"
+VERSION="0.4.1"
 REPO_URL="https://github.com/jiasongji/proxy-manager"
 RAW_SCRIPT_URL="https://raw.githubusercontent.com/jiasongji/proxy-manager/main/proxy-manager.sh"
 RELEASE_SCRIPT_URL="https://github.com/jiasongji/proxy-manager/releases/latest/download/proxy-manager.sh"
@@ -1352,11 +1352,20 @@ ensure_compose() {
   docker-compose --version
 }
 
+compose_project_name() {
+  local raw project
+  raw="pm-${PM_CONTAINER_NAME:-proxy-manager}"
+  project="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '_')"
+  printf '%s' "${project%_}"
+}
+
 compose_cmd() {
+  local project
+  project="$(compose_project_name)"
   if docker compose version >/dev/null 2>&1; then
-    (cd "$(COMPOSE_DIR)" && docker compose "$@")
+    (cd "$(COMPOSE_DIR)" && docker compose -p "$project" "$@")
   else
-    (cd "$(COMPOSE_DIR)" && docker-compose "$@")
+    (cd "$(COMPOSE_DIR)" && docker-compose -p "$project" "$@")
   fi
 }
 
