@@ -117,7 +117,28 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] 更新菜单 smoke tests，覆盖新菜单编号。
 - [x] 新增临时目录 generated config smoke tests，验证 `entry_a split` 与 B 密码不进入客户端导出。
 
-## 7. 安全结论
+## 7. 实机 A/B 验收结果
+
+> 以下只记录脱敏结论；真实服务器 IP、域名、端口和密钥不写入公开审计文件。
+
+- [x] GitHub Release `v0.4.1` 已创建，`latest/download/proxy-manager.sh` 下载后 `VERSION="0.4.1"` 且 `bash -n` 通过。
+- [x] `v0.4.1` Release asset SHA-256：`fb6c3a453fca6e0e96683527d630e6c582ede6161cb5a70aeb0a1f70212eb690`。
+- [x] main 分支 CI 已通过：Bash syntax、ShellCheck、公开文档审计、CLI smoke、菜单 smoke、生成配置 smoke。
+- [x] 测试服务器 B 已以 `egress_b` 模式部署 Shadowsocks landing，`p-m check` 通过，容器与 TCP/UDP 监听正常。
+- [x] 测试服务器 A 已以 `entry_a` 模式部署 AnyTLS + NaiveProxy，`p-m check` 通过，容器与监听正常。
+- [x] AnyTLS 客户端经 A 访问普通 IP 检测站显示 A 出口；访问自定义走 B 域名显示 B 出口。
+- [x] NaiveProxy 客户端经 A 访问普通 IP 检测站显示 A 出口；访问自定义走 B 域名显示 B 出口。
+- [x] `all_via_b` 模式验证：普通 IP 检测站显示 B 出口。
+- [x] `all_direct` 模式验证：自定义走 B 域名回到 A 出口。
+- [x] 多用户生命周期验证通过：添加、重复添加拒绝、禁用、启用、改密、设置/取消限额、重置流量。
+- [x] 禁用用户后，旧客户端导出文件被清理。
+- [x] `doctor` 在 A/B 测试节点均完成且未发现阻塞项。
+- [x] 当前上游 sing-box 镜像不包含 V2Ray API stats 编译能力，`stats probe` 按预期失败并进入 traffic/quota 降级路径。
+- [x] `traffic` 在 stats 不可用时输出用户列表和降级提示。
+- [x] `quota check` 在 stats 不可用时输出降级提示，不破坏运行中代理服务。
+- [x] 发现并修复 Docker Compose project 名称冲突：`v0.4.1` 按容器名隔离 compose project，避免多个部署目录都叫 `compose` 时互相影响。
+
+## 8. 安全结论
 
 - 静态语法检查：通过。
 - 菜单烟测：通过。
@@ -128,7 +149,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - Docker / sing-box 实际 `check -c`：待有 Docker daemon 的环境确认。
 - A/B 实机连通与出口 IP 验证：待测试服务器执行。
 
-## 8. 代码审查修复
+## 9. 代码审查修复
 
 本轮 max-effort 代码审查后已修复：
 
@@ -150,7 +171,7 @@ jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$
 - [x] `ENABLE_TRAFFIC_STATS=1` 且 `ENABLE_V2RAY_API=0` 时，生成配置仍包含 `experimental.v2ray_api.stats`。
 - [x] `p-m route mode <invalid>` 会失败而不是回退。
 
-## 9. 已知限制
+## 10. 已知限制
 
 - per-user 流量统计依赖 sing-box V2Ray API stats、镜像编译能力以及宿主机 `grpcurl`；不可用时限额功能降级。
 - 初版分流规则使用内置域名/关键词和自定义列表，不自动下载远程 rule-set。
