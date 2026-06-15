@@ -19,7 +19,7 @@ jobs:
       - name: Install ShellCheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck
+          sudo apt-get install -y shellcheck jq
 
       - name: ShellCheck
         run: shellcheck proxy-manager.sh
@@ -30,11 +30,71 @@ jobs:
           ! grep -RIn "${placeholder}GITHUB_ORG\|${placeholder}" README.md Proxy-Manager-部署运维手册.html Dockerfile
           ! grep -RInE 'BEGIN [A-Z ]*KEY|gho_[A-Za-z0-9_]+|ghp_[A-Za-z0-9_]+|AKIA[0-9A-Z]{16}' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md
           ! grep -RInE 'scp|ssh -i|chmod 600|登录测试服务器|上传脚本' README.md Proxy-Manager-部署运维手册.html
+          ! grep -RInE 'B_SS_PASSWORD=[^<]|b-secret|legacy-any|legacy-naive|DR-LA_.*id_ed25519' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md
+
+      - name: CLI help smoke tests
+        run: |
+          bash proxy-manager.sh help >/tmp/pm-help.out
+          bash proxy-manager.sh user help >/tmp/pm-user-help.out
+          bash proxy-manager.sh route help >/tmp/pm-route-help.out
+          bash proxy-manager.sh stats help >/tmp/pm-stats-help.out
+          bash proxy-manager.sh traffic help >/tmp/pm-traffic-help.out
+          bash proxy-manager.sh quota help >/tmp/pm-quota-help.out
 
       - name: Menu smoke tests
         run: |
           printf '\n' | bash proxy-manager.sh menu
           printf '0\n' | bash proxy-manager.sh menu
           printf '3\n\n\n' | bash proxy-manager.sh menu
-          printf '3\n0\n0\n' | bash proxy-manager.sh menu
+          printf '4\n0\n0\n' | bash proxy-manager.sh menu
           printf 'x\n\n' | bash proxy-manager.sh menu
+
+      - name: Generated config smoke tests
+        run: |
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/config"
+          printf 'dummy cert\n' > "$tmp/cert.pem"
+          printf 'dummy key\n' > "$tmp/key.pem"
+          cat > "$tmp/config/manager.env" <<EOF
+          PM_DOMAIN=example.com
+          PM_ROOT=$tmp
+          PM_SERVER_IP=203.0.113.10
+          PM_CONTAINER_NAME=pm-test
+          PM_IMAGE=jiasongji/proxy-manager-sing-box:latest
+          PM_TZ=Asia/Shanghai
+          PM_NODE_ROLE=entry_a
+          ENABLE_ANYTLS=1
+          ENABLE_NAIVE=1
+          ENABLE_SS=0
+          ANYTLS_PORT=30001
+          NAIVE_PORT=30002
+          SS_PORT=
+          ANYTLS_NAME=proxy
+          ANYTLS_PASSWORD=legacy-any
+          NAIVE_USERNAME=legacy
+          NAIVE_PASSWORD=legacy-naive
+          SS_METHOD=aes-128-gcm
+          SS_PASSWORD=
+          B_SS_HOST=198.51.100.20
+          B_SS_PORT=30003
+          B_SS_METHOD=aes-128-gcm
+          B_SS_PASSWORD=b-secret
+          ROUTE_MODE=split
+          ROUTE_B_CATEGORIES=ai,google
+          ROUTE_B_CUSTOM_DOMAINS=
+          ROUTE_B_CUSTOM_KEYWORDS=
+          ROUTE_B_INCLUDE_YOUTUBE=0
+          ENABLE_V2RAY_API=0
+          V2RAY_API_LISTEN=127.0.0.1:10085
+          ENABLE_TRAFFIC_STATS=0
+          ENABLE_QUOTA_ENFORCE=0
+          CERT_FILE=$tmp/cert.pem
+          KEY_FILE=$tmp/key.pem
+          CREATED_AT='2026-06-15 00:00:00'
+          EOF
+          PM_ROOT="$tmp" bash proxy-manager.sh route add-domain example.net >/tmp/pm-render-test.out
+          jq -e '.outbounds[] | select(.tag=="egress-b")' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '.route.rules[0].domain_suffix | index("example.net")' "$tmp/config/sing-box.json" >/dev/null
+          jq -e '.inbounds[] | select(.tag=="anytls-in") | .users[0].name == "default"' "$tmp/config/sing-box.json" >/dev/null
+          ! grep -R "b-secret" "$tmp/config/client" >/dev/null
+          rm -rf "$tmp"

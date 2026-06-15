@@ -14,9 +14,9 @@
 <body>
 <div class="wrap">
   <header class="hero">
-    <span class="badge ok">Proxy Manager</span><span class="badge">sing-box</span><span class="badge">Docker host network</span>
+    <span class="badge ok">Proxy Manager</span><span class="badge">sing-box</span><span class="badge">A/B egress</span><span class="badge">multi-user</span>
     <h1>Proxy Manager 部署运维手册</h1>
-    <p>本手册面向服务器内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理服务；主菜单回车退出，二级菜单回车返回上一页。</p>
+    <p>本手册面向服务器内直接部署：脚本从 GitHub 下载，安装后使用 <code>p-m</code> 或 <code>proxy-manager</code> 管理单机模式、服务器 A 入口分流模式、服务器 B Shadowsocks 落地模式。</p>
   </header>
 
   <main class="grid">
@@ -24,18 +24,19 @@
       <a href="#overview">1. 概览</a>
       <a href="#requirements">2. 环境要求</a>
       <a href="#install">3. 一键安装</a>
-      <a href="#menu">4. 菜单与命令</a>
-      <a href="#components">5. 组件模式</a>
-      <a href="#ops">6. 日常运维</a>
-      <a href="#docker">7. Docker 镜像</a>
-      <a href="#audit">8. 审计测试</a>
-      <a href="#remove">9. 卸载与安全</a>
+      <a href="#topology">4. A/B 拓扑</a>
+      <a href="#menu">5. 菜单与命令</a>
+      <a href="#users">6. 多用户管理</a>
+      <a href="#route">7. 分流与落地</a>
+      <a href="#traffic">8. 流量与限额</a>
+      <a href="#audit">9. 审计测试</a>
+      <a href="#remove">10. 卸载与安全</a>
     </nav>
 
     <section class="content">
       <section id="overview" class="card">
         <h2>1. 概览</h2>
-        <p>Proxy Manager 是一个 Bash 管理脚本，用于部署和维护基于 <code>sing-box</code> 的 AnyTLS、NaiveProxy 与 Shadowsocks 落地服务。</p>
+        <p>Proxy Manager 是一个 Bash 管理脚本，用于部署和维护基于 <code>sing-box</code> 的 AnyTLS、NaiveProxy 与 Shadowsocks 服务。新版支持服务器 A / 服务器 B 双节点：用户连接 A，A 根据规则选择 A 直出或经 B 的 Shadowsocks 落地出站。</p>
         <table>
           <tr><th>项目</th><th>值</th></tr>
           <tr><td>GitHub 仓库</td><td><code>https://github.com/jiasongji/proxy-manager</code></td></tr>
@@ -51,6 +52,8 @@
           <li>Linux 服务器，建议使用 root 用户执行安装。</li>
           <li>Docker daemon 可用。</li>
           <li>Docker Compose 可用；缺失时脚本会尝试安装独立二进制。</li>
+          <li><code>jq</code> 可用：多用户、分流与 JSON 配置管理需要。</li>
+          <li>可选 <code>grpcurl</code>：用于 V2Ray API stats 用户流量查询。</li>
           <li>启用 AnyTLS 或 NaiveProxy 时，需要域名和 TLS 证书/key 文件。</li>
           <li>云厂商安全组、面板防火墙需放行实际组件端口。</li>
         </ul>
@@ -72,15 +75,59 @@ sudo bash /tmp/proxy-manager.sh install</pre>
         <pre>p-m</pre>
       </section>
 
+      <section id="topology" class="card">
+        <h2>4. A/B 拓扑</h2>
+        <pre>用户客户端
+  │ AnyTLS / NaiveProxy
+  ▼
+服务器 A（entry_a）
+  ├─ split: AI / Google / 自定义规则 → Shadowsocks outbound → 服务器 B
+  ├─ split: 其他流量 → direct → 服务器 A 出口
+  ├─ all_via_b: 全部流量 → 服务器 B 出口
+  └─ all_direct: 全部流量 → 服务器 A 出口
+
+服务器 B（egress_b）
+  └─ Shadowsocks inbound → direct 出站</pre>
+        <h3>服务器 B 安装示例</h3>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m install --yes \
+  --node-role egress_b \
+  --domain b.example.com \
+  --server-ip 198.51.100.20 \
+  --b-ss-port 30003 \
+  --b-ss-method aes-128-gcm \
+  --b-ss-password '&lt;B_SS_PASSWORD&gt;'</pre>
+        <h3>服务器 A 安装示例</h3>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m install --yes \
+  --node-role entry_a \
+  --domain a.example.com \
+  --server-ip 203.0.113.10 \
+  --components anytls,naive \
+  --cert-file /www/server/panel/vhost/cert/a.example.com/fullchain.pem \
+  --key-file /www/server/panel/vhost/cert/a.example.com/privkey.pem \
+  --anytls-port 30001 \
+  --naive-port 30002 \
+  --b-ss-host 198.51.100.20 \
+  --b-ss-port 30003 \
+  --b-ss-method aes-128-gcm \
+  --b-ss-password '&lt;B_SS_PASSWORD&gt;' \
+  --route-mode split</pre>
+        <div class="note">B 的 Shadowsocks 凭据只用于 A 连接 B，不会写入用户客户端配置。建议 B 端口只允许 A 的公网 IP 访问。</div>
+      </section>
+
       <section id="menu" class="card">
-        <h2>4. 菜单与命令</h2>
-        <p>交互菜单采用二级结构：</p>
-        <ul>
-          <li>主菜单直接回车：退出。</li>
-          <li>主菜单输入 <code>0</code>：退出。</li>
-          <li>二级菜单直接回车：返回上一页。</li>
-          <li>二级菜单输入 <code>0</code>：返回上一页。</li>
-        </ul>
+        <h2>5. 菜单与命令</h2>
+        <pre>1) 安装 / 更新
+2) 服务管理
+3) 用户管理
+4) 分流管理
+5) 流量 / 限额
+6) 状态 / 日志 / 诊断
+7) 节点信息
+8) 审计 / 自检
+9) 卸载清理
+0) 退出</pre>
         <h3>常用命令</h3>
         <button class="copy" data-copy>复制</button>
         <pre>p-m install
@@ -93,100 +140,106 @@ p-m restart
 p-m status
 p-m logs
 p-m info
+p-m doctor
+p-m topology
 p-m check
-p-m change-port
-p-m change-secret
-p-m regen
 p-m uninstall</pre>
       </section>
 
-      <section id="components" class="card">
-        <h2>5. 组件模式</h2>
+      <section id="users" class="card">
+        <h2>6. 多用户管理</h2>
+        <p>用户数据库位于 <code>config/users.json</code>，客户端导出位于 <code>config/client/&lt;user&gt;/</code>。</p>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m user list
+p-m user add alice --protocols anytls,naive --quota 100GB
+p-m user show alice
+p-m user disable alice
+p-m user enable alice
+p-m user passwd alice all
+p-m user quota alice unlimited
+p-m user reset-usage alice
+p-m user export alice
+p-m user del alice</pre>
+        <ul>
+          <li>禁用用户后，该用户会从 sing-box inbound 用户列表中移除。</li>
+          <li><code>p-m user export</code> 会显示真实客户端密码，请勿公开粘贴。</li>
+          <li>从旧单用户版本升级时，旧凭据会迁移为 <code>default</code> 用户。</li>
+        </ul>
+      </section>
+
+      <section id="route" class="card">
+        <h2>7. 分流与落地</h2>
+        <button class="copy" data-copy>复制</button>
+        <pre>p-m route show
+p-m route mode split
+p-m route mode all-via-b
+p-m route mode all-direct
+p-m route add-domain example.net
+p-m route del-domain example.net
+p-m route add-keyword example-keyword
+p-m route del-keyword example-keyword</pre>
         <table>
-          <tr><th>模式</th><th>说明</th><th>参数值</th></tr>
-          <tr><td>全部组件</td><td>AnyTLS + NaiveProxy + Shadowsocks</td><td><code>all</code></td></tr>
-          <tr><td>仅 AnyTLS</td><td>只暴露 AnyTLS 入口</td><td><code>anytls</code></td></tr>
-          <tr><td>仅 NaiveProxy</td><td>只暴露 NaiveProxy 入口</td><td><code>naive</code></td></tr>
-          <tr><td>仅 Shadowsocks</td><td>作为落地出口</td><td><code>ss</code></td></tr>
-          <tr><td>组合</td><td>按需组合启用</td><td><code>anytls,ss</code></td></tr>
+          <tr><th>模式</th><th>说明</th></tr>
+          <tr><td><code>split</code></td><td>AI / Google / 自定义规则走 B，其余走 A。</td></tr>
+          <tr><td><code>all_via_b</code></td><td>全部流量走 B，用户看到的出口 IP 为 B。</td></tr>
+          <tr><td><code>all_direct</code></td><td>全部流量走 A，用于 B 故障时回退。</td></tr>
         </table>
-        <h3>参数化安装示例</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>p-m install --yes \
-  --domain example.com \
-  --server-ip 203.0.113.10 \
-  --components anytls,ss \
-  --cert-file /www/server/panel/vhost/cert/example.com/fullchain.pem \
-  --key-file /www/server/panel/vhost/cert/example.com/privkey.pem \
-  --anytls-port 30001 \
-  --ss-port 30003</pre>
+        <p>YouTube 默认不加入 Google 走 B，避免大流量视频消耗 B 带宽；可通过自定义域名按需加入。</p>
       </section>
 
-      <section id="ops" class="card">
-        <h2>6. 日常运维</h2>
-        <h3>状态、日志、节点信息</h3>
+      <section id="traffic" class="card">
+        <h2>8. 流量与限额</h2>
         <button class="copy" data-copy>复制</button>
-        <pre>p-m status
-p-m logs
-p-m info</pre>
-        <h3>修改配置</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>p-m change-port
-p-m change-secret
-p-m regen
-p-m check
-p-m restart</pre>
-        <h3>升级</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>p-m update
-p-m pull-image
-p-m restart</pre>
-      </section>
-
-      <section id="docker" class="card">
-        <h2>7. Docker 镜像</h2>
-        <p>默认镜像：</p>
-        <pre>jiasongji/proxy-manager-sing-box:latest</pre>
-        <h3>本地构建与推送</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>docker build -t jiasongji/proxy-manager-sing-box:latest .
-docker push jiasongji/proxy-manager-sing-box:latest</pre>
+        <pre>p-m stats probe
+p-m traffic
+p-m traffic alice
+p-m quota check</pre>
+        <ul>
+          <li>用户流量统计优先使用 sing-box <code>experimental.v2ray_api.stats.users</code>。</li>
+          <li>需要镜像支持 V2Ray API / gRPC，并且宿主机可用 <code>grpcurl</code>。</li>
+          <li>stats 或 <code>grpcurl</code> 不可用时，流量与限额功能降级提示，不影响代理、分流和用户管理。</li>
+          <li>stats API 默认监听 <code>127.0.0.1:10085</code>，不要暴露到公网。</li>
+        </ul>
       </section>
 
       <section id="audit" class="card">
-        <h2>8. 审计测试</h2>
+        <h2>9. 审计测试</h2>
         <h3>本地静态检查</h3>
         <button class="copy" data-copy>复制</button>
         <pre>bash -n proxy-manager.sh
 shellcheck proxy-manager.sh</pre>
-        <h3>文档与敏感信息检查</h3>
+        <h3>CLI 与菜单烟测</h3>
         <button class="copy" data-copy>复制</button>
-        <pre>grep -RIn '未替换占位符' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md || true
-grep -RInE 'token|api[_-]?key|真实密码|订阅链接' README.md Proxy-Manager-部署运维手册.html Dockerfile AUDIT.md || true</pre>
-        <h3>菜单烟测</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>printf '\n' | bash proxy-manager.sh menu
+        <pre>bash proxy-manager.sh help
+bash proxy-manager.sh user help
+bash proxy-manager.sh route help
+bash proxy-manager.sh stats help
+bash proxy-manager.sh traffic help
+bash proxy-manager.sh quota help
+printf '\n' | bash proxy-manager.sh menu
 printf '0\n' | bash proxy-manager.sh menu
 printf '3\n\n\n' | bash proxy-manager.sh menu
-printf '3\n0\n0\n' | bash proxy-manager.sh menu</pre>
-        <h3>组件矩阵</h3>
-        <button class="copy" data-copy>复制</button>
-        <pre>p-m install --yes --components all
-p-m install --yes --components anytls
-p-m install --yes --components naive
-p-m install --yes --components ss
-p-m install --yes --components anytls,ss</pre>
+printf '4\n0\n0\n' | bash proxy-manager.sh menu</pre>
+        <h3>部署验收</h3>
+        <ul>
+          <li>B：Shadowsocks landing 启动并限制来源 IP。</li>
+          <li>A：AnyTLS / NaiveProxy 可连接，split 模式命中规则走 B，其余走 A。</li>
+          <li>all_via_b 全部走 B；all_direct 全部走 A。</li>
+          <li>多用户添加、禁用、导出、改密、删除流程可用。</li>
+          <li>公开文档不包含真实密码、token、私钥或 B 凭据。</li>
+        </ul>
       </section>
 
       <section id="remove" class="card">
-        <h2>9. 卸载与安全</h2>
+        <h2>10. 卸载与安全</h2>
         <button class="copy" data-copy>复制</button>
         <pre>p-m uninstall</pre>
         <ul>
           <li>卸载会移除 <code>p-m</code> 与 <code>proxy-manager</code> 命令映射。</li>
           <li>默认不删除 Docker、Docker Compose 和 TLS 证书文件。</li>
           <li>删除项目目录必须额外输入 <code>DELETE</code>。</li>
-          <li>不要公开粘贴 <code>p-m info</code> 输出，因为其中包含真实端口和密码。</li>
+          <li><code>manager.env</code>、<code>users.json</code>、客户端导出文件均包含敏感信息，应保持 <code>600</code> 权限。</li>
+          <li>不要公开粘贴 <code>p-m info</code> 或 <code>p-m user export</code> 输出。</li>
         </ul>
       </section>
     </section>
